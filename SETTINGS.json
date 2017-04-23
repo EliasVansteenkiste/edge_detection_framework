@@ -1,0 +1,9 @@
+{
+  "DATA_PATH": "/data/plnt/",
+  "LABELS_PATH": "/data/plnt/labels",
+  "METADATA_PATH": "/home/eavsteen/dsb3/storage/metadata/dsb3/",
+  "SAMPLE_SUBMISSION_PATH": "/data/plnt/stage1_sample_submission.csv",
+  "VALIDATION_SPLIT_PATH": "/data/plnt/validation_split.pkl",
+}
+
+
