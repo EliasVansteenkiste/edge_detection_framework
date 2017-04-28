@@ -16,7 +16,7 @@ rng = np.random.RandomState(42)
 # transformations
 p_transform = {'patch_size': (128, 128),
                'channels': 4,
-               'n_labels': 18}
+               'n_labels': 17}
 
 
 p_augmentation = {

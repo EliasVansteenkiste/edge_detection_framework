@@ -1,6 +1,6 @@
 import numpy as np # linear algebra
 import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
-import skimage
+from skimage import io
 
 import pathfinder
 
@@ -16,7 +16,7 @@ def read_image(dataset, id):
 	else:
 		raise
 	path = pathfinder.DATA_PATH + prefix + str(id) + '.tif'
-	image = skimage.io.imread(path)
+	image = io.imread(path)
 	image = np.swapaxes(image,0,2)
 	return image
 	
@@ -26,6 +26,12 @@ def get_labels():
 	df_train = pd.concat([df_train['image_name'], df_train.tags.str.get_dummies(sep=' ')], axis=1)
 	return df_train
 
+def get_labels_array():
+	df = get_labels()
+	only_labels = df.drop(['image_name'], axis = 1, inplace = False)
+	only_labels = only_labels.as_matrix()
+	return only_labels
+	
 def chunkIt(seq, num):
   avg = len(seq) / float(num)
   out = []

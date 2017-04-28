@@ -4,10 +4,11 @@ import numpy as np
 import pathfinder
 import utils
 import app
+import buffering
 
 class DataGenerator(object):
     def __init__(self, dataset, batch_size, img_ids, p_transform, data_prep_fun, rng,
-                 random, infinite, **kwargs):
+                 random, infinite, full_batch, **kwargs):
 
 
         self.dataset = dataset
@@ -18,8 +19,9 @@ class DataGenerator(object):
         self.rng = rng
         self.random = random
         self.infinite = infinite
+        self.full_batch = full_batch
 
-        self.labels = app.get_labels()
+        self.labels = app.get_labels_array()
 
     def generate(self):
         while True:
@@ -31,9 +33,9 @@ class DataGenerator(object):
                 nb = len(idxs_batch)
                 # allocate batches
                 if self.p_transform['channels']:
-                    x_batch = np.zeros((nb,) + self.p_transform['patch_size'], dtype='float32')
+                    x_batch = np.zeros((nb,p_transform['channels'],) + self.p_transform['patch_size'], dtype='float32')
                 else:
-                    x_batch = np.zeros((nb, p_transform['channels']) + self.p_transform['patch_size'], dtype='float32')
+                    x_batch = np.zeros((nb,) + self.p_transform['patch_size'], dtype='float32')
                 y_batch = np.zeros((nb, self.p_transform['n_labels']), dtype='float32')
 
                 batch_ids = []
@@ -43,7 +45,10 @@ class DataGenerator(object):
                     batch_ids.append(img_id)
 
                     img = app.read_image(self.dataset, img_id)
-                    x_batch[i] = self.data_prep_fun(data=img)
+                    if self.data_prep_fun:
+                        x_batch[i] = self.data_prep_fun(x=img)
+                    else:
+                        x_batch[i] = img
                     
                     y_batch[i] = self.labels[img_id]
 
@@ -55,3 +60,27 @@ class DataGenerator(object):
 
             if not self.infinite:
                 break
+
+
+if __name__ == "__main__":
+    #testing data iterator 
+    
+    p_transform = {'patch_size': (128, 128),
+               'channels': 4,
+               'n_labels': 17}
+    rng = np.random.RandomState(42)
+
+    def data_prep_fun(x):
+        x = x[:,:128,:128]
+        return x
+
+    dg = DataGenerator(dataset='train',
+                        batch_size=10,
+                        img_ids = np.arange(100),
+                        p_transform=p_transform,
+                        data_prep_fun = data_prep_fun,
+                        rng=rng,
+                        full_batch=True, random=True, infinite=True)
+
+    for (x_chunk, y_chunk, id_train) in buffering.buffered_gen_threaded(dg.generate()):
+        print x_chunk.shape, y_chunk.shape, id_train
