@@ -2,298 +2,209 @@ from collections import namedtuple
 import numpy as np
 import scipy.ndimage
 import math
-import utils_lung
+import skimage.io
+import skimage.transform
+from collections import defaultdict
 
-MAX_HU = 400.
-MIN_HU = -1000.
-rng = np.random.RandomState(317070)
+import utils_plots
+import app
 
 
-def hu2normHU(x):
-    """
-    Modifies input data
-    :param x:
-    :return:
-    """
-    x = (x - MIN_HU) / (MAX_HU - MIN_HU)
-    x = np.clip(x, 0., 1., out=x)
+rng = np.random.RandomState(37145)
+
+
+def pixelnorm(x, MIN=0, MAX=61440.0):
+    x = (x - MIN) / (MAX - MIN)
     return x
 
 
-def pixelnormHU(x):
-    x = (x - MIN_HU) / (MAX_HU - MIN_HU)
-    x = np.clip(x, 0., 1., out=x)
-    return (x - 0.5) / 0.5
 
+default_channel_zmuv_stats = {
+    'avg': [4970.55, 4245.35, 3064.64, 6360.08],
+    'std': [1785.79, 1576.31, 1661.19, 1841.09]}
 
-def sample_augmentation_parameters(transformation):
-    shift_z = rng.uniform(*transformation.get('translation_range_z', [0., 0.]))
-    shift_y = rng.uniform(*transformation.get('translation_range_y', [0., 0.]))
-    shift_x = rng.uniform(*transformation.get('translation_range_x', [0., 0.]))
-    translation = (shift_z, shift_y, shift_x)
+def channel_zmuv(x, img_stats = default_channel_zmuv_stats, no_channels=4):
+    for ch in range(no_channels):
+        x[ch] = (x[ch] - img_stats['avg'][ch]) / img_stats['std'][ch]
+    return x
 
-    rotation_z = rng.uniform(*transformation.get('rotation_range_z', [0., 0.]))
-    rotation_y = rng.uniform(*transformation.get('rotation_range_y', [0., 0.]))
-    rotation_x = rng.uniform(*transformation.get('rotation_range_x', [0., 0.]))
-    rotation = (rotation_z, rotation_y, rotation_x)
+default_channel_norm_stats = {
+    0.1: [2739., 2022., 1284., 1091.],
+    0.5: [3016., 2272., 1433., 1415.],
+    1: [3149., 2441., 1563.,  1733.],
+    5: [3514., 2867., 1792., 3172.],
+    10: [3661., 3016., 1902., 4132.],
+    50: [4503., 3768., 2534., 6399.],
+    90: [6615., 5912., 4694., 8311.],
+    95: [7623., 6822., 5698., 9109.],
+    99: [11065., 10184., 9047., 11561.],
+    99.5: [14686., 13508., 12197., 12820.],
+    99.9: [23722., 16926., 19183., 16523.]
+}
 
-    return namedtuple('Params', ['translation', 'rotation'])(translation, rotation)
+def channel_norm(x, img_stats = default_channel_norm_stats, percentiles=[1,99], no_channels=4):
+    for ch in range(no_channels):
+        minimum = img_stats[percentiles[0]][ch]
+        maximum = img_stats[percentiles[1]][ch]
+        x[ch] = (x[ch] - minimum) / (maximum-minimum)
 
+default_augmentation_params = {
+    'zoom_range': (1 / 1.1, 1.1),
+    'rotation_range': (0, 360),
+    'shear_range': (0, 0),
+    'translation_range': (-4, 4),
+    'do_flip': True,
+    'allow_stretch': False,
+}
 
-def transform_scan3d(data, pixel_spacing, p_transform,
-                     luna_annotations=None,
-                     luna_origin=None,
-                     p_transform_augment=None,
-                     world_coord_system=True,
-                     lung_mask=None):
-    mm_patch_size = np.asarray(p_transform['mm_patch_size'], dtype='float32')
-    out_pixel_spacing = np.asarray(p_transform['pixel_spacing'])
+no_augmentation_params = {
+    'zoom_range': (1.0, 1.0),
+    'rotation_range': (0, 0),
+    'shear_range': (0, 0),
+    'translation_range': (0, 0),
+    'do_flip': False,
+    'allow_stretch': False,
+}
 
-    input_shape = np.asarray(data.shape)
-    mm_shape = input_shape * pixel_spacing / out_pixel_spacing
-    output_shape = p_transform['patch_size']
-
-    # here we give parameters to affine transform as if it's T in
-    # output = T.dot(input)
-    # https://www.cs.mtu.edu/~shene/COURSES/cs3621/NOTES/geometry/geo-tran.html
-    # but the affine_transform() makes it reversed for scipy
-    tf_mm_scale = affine_transform(scale=mm_shape / input_shape)
-    tf_shift_center = affine_transform(translation=-mm_shape / 2.)
-
-    tf_shift_uncenter = affine_transform(translation=mm_patch_size / 2.)
-    tf_output_scale = affine_transform(scale=output_shape / mm_patch_size)
-
-    if p_transform_augment:
-        augment_params_sample = sample_augmentation_parameters(p_transform_augment)
-        tf_augment = affine_transform(translation=augment_params_sample.translation,
-                                      rotation=augment_params_sample.rotation)
-        tf_total = tf_mm_scale.dot(tf_shift_center).dot(tf_augment).dot(tf_shift_uncenter).dot(tf_output_scale)
-    else:
-        tf_total = tf_mm_scale.dot(tf_shift_center).dot(tf_shift_uncenter).dot(tf_output_scale)
-
-    data_out = apply_affine_transform(data, tf_total, order=1, output_shape=output_shape)
-
-    if lung_mask is not None:
-        lung_mask_out = apply_affine_transform(lung_mask, tf_total, order=1, output_shape=output_shape)
-        lung_mask_out[lung_mask_out > 0.] = 1.
-    if luna_annotations is not None:
-        annotatations_out = []
-        for zyxd in luna_annotations:
-            zyx = np.array(zyxd[:3])
-            voxel_coords = utils_lung.world2voxel(zyx, luna_origin, pixel_spacing) if world_coord_system else zyx
-            voxel_coords = np.append(voxel_coords, [1])
-            voxel_coords_out = np.linalg.inv(tf_total).dot(voxel_coords)[:3]
-            diameter_mm = zyxd[-1]
-            diameter_out = diameter_mm * output_shape[1] / mm_patch_size[1] / out_pixel_spacing[1]
-            zyxd_out = np.rint(np.append(voxel_coords_out, diameter_out))
-            annotatations_out.append(zyxd_out)
-        annotatations_out = np.asarray(annotatations_out)
-        if lung_mask is None:
-            return data_out, annotatations_out, tf_total
-        else:
-            return data_out, annotatations_out, tf_total, lung_mask_out
-
-    if lung_mask is None:
-        return data_out, tf_total
-    else:
-        return data_out, tf_total, lung_mask_out
-
-
-def transform_patch3d(data, pixel_spacing, p_transform,
-                      patch_center,
-                      luna_origin,
-                      luna_annotations=None,
-                      p_transform_augment=None,
-                      world_coord_system=True):
-    mm_patch_size = np.asarray(p_transform['mm_patch_size'], dtype='float32')
-    out_pixel_spacing = np.asarray(p_transform['pixel_spacing'])
-
-    input_shape = np.asarray(data.shape)
-    mm_shape = input_shape * pixel_spacing / out_pixel_spacing
-    output_shape = p_transform['patch_size']
-
-    zyx = np.array(patch_center[:3])
-    voxel_coords = utils_lung.world2voxel(zyx, luna_origin, pixel_spacing) if world_coord_system else zyx
-    voxel_coords_mm = voxel_coords * mm_shape / input_shape
-
-    # here we give parameters to affine transform as if it's T in
-    # output = T.dot(input)
-    # https://www.cs.mtu.edu/~shene/COURSES/cs3621/NOTES/geometry/geo-tran.html
-    # but the affine_transform() makes it reversed for scipy
-    tf_mm_scale = affine_transform(scale=mm_shape / input_shape)
-    tf_shift_center = affine_transform(translation=-voxel_coords_mm)
-
-    tf_shift_uncenter = affine_transform(translation=mm_patch_size / 2.)
-    tf_output_scale = affine_transform(scale=output_shape / mm_patch_size)
-
-    if p_transform_augment:
-        augment_params_sample = sample_augmentation_parameters(p_transform_augment)
-        # print 'augmentation parameters', augment_params_sample
-        tf_augment = affine_transform(translation=augment_params_sample.translation,
-                                      rotation=augment_params_sample.rotation)
-        tf_total = tf_mm_scale.dot(tf_shift_center).dot(tf_augment).dot(tf_shift_uncenter).dot(tf_output_scale)
-    else:
-        tf_total = tf_mm_scale.dot(tf_shift_center).dot(tf_shift_uncenter).dot(tf_output_scale)
-
-    data_out = apply_affine_transform(data, tf_total, order=p_transform.get('interpolation_order', 1),
-                                      output_shape=output_shape)
-
-    # transform patch annotations
-    diameter_mm = patch_center[-1]
-    diameter_out = diameter_mm * output_shape[1] / mm_patch_size[1] / out_pixel_spacing[1]
-    voxel_coords = np.append(voxel_coords, [1])
-    voxel_coords_out = np.linalg.inv(tf_total).dot(voxel_coords)[:3]
-    patch_annotation_out = np.rint(np.append(voxel_coords_out, diameter_out))
-    # print 'pathch_center_after_transform', patch_annotation_out
-
-    if luna_annotations is not None:
-        annotatations_out = []
-        for zyxd in luna_annotations:
-            zyx = np.array(zyxd[:3])
-            voxel_coords = utils_lung.world2voxel(zyx, luna_origin, pixel_spacing) if world_coord_system else zyx
-            voxel_coords = np.append(voxel_coords, [1])
-            voxel_coords_out = np.linalg.inv(tf_total).dot(voxel_coords)[:3]
-            diameter_mm = zyxd[-1]
-            diameter_out = diameter_mm * output_shape[1] / mm_patch_size[1] / out_pixel_spacing[1]
-            zyxd_out = np.rint(np.append(voxel_coords_out, diameter_out))
-            annotatations_out.append(zyxd_out)
-        annotatations_out = np.asarray(annotatations_out)
-        return data_out, patch_annotation_out, annotatations_out
-
-    return data_out, patch_annotation_out
-
-
-def transform_dsb_candidates(data, patch_centers, pixel_spacing, p_transform,
-                             p_transform_augment=None):
-    mm_patch_size = np.asarray(p_transform['mm_patch_size'], dtype='float32')
-    out_pixel_spacing = np.asarray(p_transform['pixel_spacing'])
-
-    input_shape = np.asarray(data.shape)
-    mm_shape = input_shape * pixel_spacing / out_pixel_spacing
-    output_shape = p_transform['patch_size']
-
-    patches_out = []
-    for zyxd in patch_centers:
-        zyx = np.array(zyxd[:3])
-        zyx_mm = zyx * mm_shape / input_shape
-
-        tf_mm_scale = affine_transform(scale=mm_shape / input_shape)
-        tf_shift_center = affine_transform(translation=-zyx_mm)
-        tf_shift_uncenter = affine_transform(translation=mm_patch_size / 2.)
-        tf_output_scale = affine_transform(scale=output_shape / mm_patch_size)
-
-        if p_transform_augment:
-            augment_params_sample = sample_augmentation_parameters(p_transform_augment)
-            tf_augment = affine_transform(translation=augment_params_sample.translation,
-                                          rotation=augment_params_sample.rotation)
-            tf_total = tf_mm_scale.dot(tf_shift_center).dot(tf_augment).dot(tf_shift_uncenter).dot(tf_output_scale)
-        else:
-            tf_total = tf_mm_scale.dot(tf_shift_center).dot(tf_shift_uncenter).dot(tf_output_scale)
-
-        patch_out = apply_affine_transform(data, tf_total, order=1, output_shape=output_shape)
-        patches_out.append(patch_out[None, :, :, :])
-
-    return np.concatenate(patches_out, axis=0)
-
-
-def make_3d_mask(img_shape, center, radius, shape='sphere'):
-    mask = np.zeros(img_shape)
-    radius = np.rint(radius)
-    center = np.rint(center)
-    sz = np.arange(int(max(center[0] - radius, 0)), int(max(min(center[0] + radius + 1, img_shape[0]), 0)))
-    sy = np.arange(int(max(center[1] - radius, 0)), int(max(min(center[1] + radius + 1, img_shape[1]), 0)))
-    sx = np.arange(int(max(center[2] - radius, 0)), int(max(min(center[2] + radius + 1, img_shape[2]), 0)))
-    sz, sy, sx = np.meshgrid(sz, sy, sx)
-    if shape == 'cube':
-        mask[sz, sy, sx] = 1.
-    elif shape == 'sphere':
-        distance2 = ((center[0] - sz) ** 2
-                     + (center[1] - sy) ** 2
-                     + (center[2] - sx) ** 2)
-        distance_matrix = np.ones_like(mask) * np.inf
-        distance_matrix[sz, sy, sx] = distance2
-        mask[(distance_matrix <= radius ** 2)] = 1
-    elif shape == 'gauss':
-        z, y, x = np.ogrid[:mask.shape[0], :mask.shape[1], :mask.shape[2]]
-        distance = ((z - center[0]) ** 2 + (y - center[1]) ** 2 + (x - center[2]) ** 2)
-        mask = np.exp(- 1. * distance / (2 * radius ** 2))
-        mask[(distance > 3 * radius ** 2)] = 0
-    return mask
-
-
-def make_3d_mask_from_annotations(img_shape, annotations, shape):
-    mask = np.zeros(img_shape)
-    for zyxd in annotations:
-        mask += make_3d_mask(img_shape, zyxd[:3], zyxd[-1] / 2, shape)
-    mask = np.clip(mask, 0., 1.)
-    return mask
-
-
-def make_gaussian_annotation(patch_annotation_tf, patch_size):
-    radius = patch_annotation_tf[-1] / 2.
-    zyx = patch_annotation_tf[:3]
-    distance_z = (zyx[0] - np.arange(patch_size[0])) ** 2
-    distance_y = (zyx[1] - np.arange(patch_size[1])) ** 2
-    distance_x = (zyx[2] - np.arange(patch_size[2])) ** 2
-    z_label = np.exp(- 1. * distance_z / (2 * radius ** 2))
-    y_label = np.exp(- 1. * distance_y / (2 * radius ** 2))
-    x_label = np.exp(- 1. * distance_x / (2 * radius ** 2))
-    label = np.vstack((z_label, y_label, x_label))
-    return label
-
-
-def zmuv(x, mean, std):
-    if mean is not None and std is not None:
-        return (x - mean) / std
-    else:
-        return x
-
-
-def affine_transform(scale=None, rotation=None, translation=None):
+def build_center_uncenter_transforms(image_shape):
     """
-    rotation and shear in degrees
+    These are used to ensure that zooming and rotation happens around the center of the image.
+    Use these transforms to center and uncenter the image around such a transform.
     """
-    matrix = np.eye(4)
+    center_shift = np.array([image_shape[1], image_shape[0]]) / 2.0 - 0.5 # need to swap rows and cols here apparently! confusing!
+    tform_uncenter = skimage.transform.SimilarityTransform(translation=-center_shift)
+    tform_center = skimage.transform.SimilarityTransform(translation=center_shift)
+    return tform_center, tform_uncenter
 
-    if translation is not None:
-        matrix[:3, 3] = -np.asarray(translation, np.float)
+def build_centering_transform(image_shape, target_shape=(50, 50)):
+    rows, cols = image_shape
+    trows, tcols = target_shape
+    shift_x = (cols - tcols) / 2.0
+    shift_y = (rows - trows) / 2.0
+    return skimage.transform.SimilarityTransform(translation=(shift_x, shift_y))
 
-    if scale is not None:
-        matrix[0, 0] = 1. / scale[0]
-        matrix[1, 1] = 1. / scale[1]
-        matrix[2, 2] = 1. / scale[2]
+def fast_warp(img, tf, output_shape=(50, 50), mode='constant', order=1):
+    """
+    This wrapper function is faster than skimage.transform.warp
+    """
+    m = tf.params # tf._matrix is
+    return skimage.transform._warps_cy._warp_fast(img, m, output_shape=output_shape, mode=mode, order=order)
 
-    if rotation is not None:
-        rotation = np.asarray(rotation, np.float)
-        rotation = map(math.radians, rotation)
-        cos = map(math.cos, rotation)
-        sin = map(math.sin, rotation)
+def random_perturbation_transform(zoom_range, rotation_range, shear_range, translation_range, do_flip=True, allow_stretch=False, rng=np.random):
+    shift_x = rng.uniform(*translation_range)
+    shift_y = rng.uniform(*translation_range)
+    translation = (shift_x, shift_y)
 
-        mz = np.eye(4)
-        mz[1, 1] = cos[0]
-        mz[2, 1] = sin[0]
-        mz[1, 2] = -sin[0]
-        mz[2, 2] = cos[0]
+    rotation = rng.uniform(*rotation_range)
+    shear = rng.uniform(*shear_range)
 
-        my = np.eye(4)
-        my[0, 0] = cos[1]
-        my[0, 2] = -sin[1]
-        my[2, 0] = sin[1]
-        my[2, 2] = cos[1]
+    if do_flip:
+        flip = (rng.randint(2) > 0) # flip half of the time
+    else:
+        flip = False
 
-        mx = np.eye(4)
-        mx[0, 0] = cos[2]
-        mx[0, 1] = sin[2]
-        mx[1, 0] = -sin[2]
-        mx[1, 1] = cos[2]
+    # random zoom
+    log_zoom_range = [np.log(z) for z in zoom_range]
+    if isinstance(allow_stretch, float):
+        log_stretch_range = [-np.log(allow_stretch), np.log(allow_stretch)]
+        zoom = np.exp(rng.uniform(*log_zoom_range))
+        stretch = np.exp(rng.uniform(*log_stretch_range))
+        zoom_x = zoom * stretch
+        zoom_y = zoom / stretch
+    elif allow_stretch is True: # avoid bugs, f.e. when it is an integer
+        zoom_x = np.exp(rng.uniform(*log_zoom_range))
+        zoom_y = np.exp(rng.uniform(*log_zoom_range))
+    else:
+        zoom_x = zoom_y = np.exp(rng.uniform(*log_zoom_range))
+    # the range should be multiplicatively symmetric, so [1/1.1, 1.1] instead of [0.9, 1.1] makes more sense.
 
-        matrix = mx.dot(my).dot(mz).dot(matrix)
-    return matrix
+    return build_augmentation_transform((zoom_x, zoom_y), rotation, shear, translation, flip)
+
+def build_augmentation_transform(zoom=(1.0, 1.0), rotation=0, shear=0, translation=(0, 0), flip=False): 
+    if flip:
+        shear += 180
+        rotation += 180
+        # shear by 180 degrees is equivalent to rotation by 180 degrees + flip.
+        # So after that we rotate it another 180 degrees to get just the flip.
+
+    tform_augment = skimage.transform.AffineTransform(scale=(1/zoom[0], 1/zoom[1]), rotation=np.deg2rad(rotation), shear=np.deg2rad(shear), translation=translation)
+    return tform_augment
+
+def perturb(img, augmentation_params, target_shape, rng=rng, n_channels=4):
+    # # DEBUG: draw a border to see where the image ends up
+    # img[0, :] = 0.5
+    # img[-1, :] = 0.5
+    # img[:, 0] = 0.5
+    # img[:, -1] = 0.5
+    img_spat_shape = (img.shape[1], img.shape[2])
+    tform_centering = build_centering_transform(img_spat_shape, target_shape)
+    tform_center, tform_uncenter = build_center_uncenter_transforms(img_spat_shape)
+    tform_augment = random_perturbation_transform(rng=rng, **augmentation_params)
+    tform_augment = tform_uncenter + tform_augment + tform_center # shift to center, augment, shift back (for the rotation/shearing)
+    
+    chs = []
+    for ch in range(n_channels):
+        print img[ch].shape
+        ch_warped = fast_warp(img[ch], tform_centering + tform_augment, output_shape=target_shape, mode='constant').astype('float32')
+        print ch_warped.shape
+        chs.append(ch_warped)
+    out_img = np.stack(chs, axis=0)
+    return out_img
 
 
-def apply_affine_transform(_input, matrix, order=1, output_shape=None):
-    # output.dot(T) + s = input
-    T = matrix[:3, :3]
-    s = matrix[:3, 3]
-    return scipy.ndimage.interpolation.affine_transform(
-        _input, matrix=T, offset=s, order=order, output_shape=output_shape)
+
+def _print_stats_channels(img, channel_stats, channel_data):
+    n_channels = img.shape[-1]
+    print n_channels
+    for ch in range(n_channels):
+        print 'ch', ch,
+        ch_data = img[:,:,ch]
+        channel_data[ch].append(img[:,:,ch])
+        print 'max', np.amax(ch_data),
+        channel_stats[str(ch)+'max'].append(np.amax(ch_data))
+        print 'min', np.amin(ch_data),
+        channel_stats[str(ch)+'min'].append(np.amin(ch_data))
+        print 'avg', np.average(ch_data), 
+        channel_stats[str(ch)+'avg'].append(np.average(ch_data))
+        print 'std', np.std(ch_data),
+        channel_stats[str(ch)+'std'].append(np.std(ch_data))
+        print 'var', np.var(ch_data)
+        channel_stats[str(ch)+'var'].append(np.var(ch_data))
+
+
+if __name__ == "__main__":
+    channel_stats = defaultdict(list)
+    channel_data = defaultdict(list)
+    for i in range(2000):
+        #read in image
+        print '***** ',i 
+        tif = app.read_image('train', i)
+        print tif.shape
+        utils_plots.plot_img(tif,'plots/test'+str(i)+'.jpg')
+        p_tif = perturb(tif, default_augmentation_params, (256,256), rng)
+        utils_plots.plot_img(p_tif,'plots/test'+str(i)+'_random_augm.jpg')
+
+
+        tif = tif.astype('float32')
+        print tif.shape
+        print tif.dtype
+        #_print_stats_channels(tif,channel_stats,channel_data)
+
+    # print 'overall stats'
+
+
+    # for ch in range(4):
+    #     print 'ch', ch,
+    #     ch_data = np.concatenate(channel_data[ch])
+    #     for p in [0.1,0.5,1,5,10,50,90,95,99,99.5,99.9]:
+    #         print p, '-', np.percentile(ch_data,p), '|',
+    #     print 
+    #     print 'avg', np.average(ch_data)
+    #     print 'std', np.std(ch_data)
+
+
+
+        #utils_plots.show_img(calibrate_image(tif[:,:,:3]))
+
+
+    
