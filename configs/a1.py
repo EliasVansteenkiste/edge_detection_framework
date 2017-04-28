@@ -49,7 +49,7 @@ def data_prep_function_valid(x, p_transform=p_transform, **kwargs):
 
 
 # data iterators
-batch_size = 1
+batch_size = 32
 nbatches_chunk = 1
 chunk_size = batch_size * nbatches_chunk
 
@@ -57,6 +57,12 @@ folds = app.make_stratified_split(no_folds=5)
 print len(folds)
 train_ids = folds[0] + folds[1] + folds[2] + folds[3]
 valid_ids = folds[4]
+
+bad_ids = [18772]
+print (18772 in valid_ids)
+
+train_ids = [x for x in train_ids if x not in bad_ids]
+valid_ids = [x for x in valid_ids if x not in bad_ids]
 
 
 train_data_iterator = data_iterators.DataGenerator(dataset='train',
@@ -78,7 +84,7 @@ valid_data_iterator = data_iterators.DataGenerator(dataset='train',
 nchunks_per_epoch = train_data_iterator.nsamples / chunk_size
 max_nchunks = nchunks_per_epoch * 100
 
-validate_every = int(0.001 * nchunks_per_epoch)
+validate_every = int(1. * nchunks_per_epoch)
 save_every = int(1. * nchunks_per_epoch)
 
 learning_rate_schedule = {

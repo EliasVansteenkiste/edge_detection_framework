@@ -44,11 +44,12 @@ class DataGenerator(object):
                 for i, idx in enumerate(idxs_batch):
                     img_id = self.img_ids[idx]
                     batch_ids.append(img_id)
+                    #print i, idx, img_id,
 
                     img = app.read_image(self.dataset, img_id)
                     x_batch[i] = self.data_prep_fun(x=img)
                     y_batch[i] = self.labels[img_id]
-                    print i, idx, y_batch[i]
+                    #print y_batch[i]
 
 
                 if self.full_batch:
