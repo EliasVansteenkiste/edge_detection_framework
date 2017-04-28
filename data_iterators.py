@@ -5,47 +5,53 @@ import pathfinder
 import utils
 import app
 
-class LunaDataGenerator(object):
-    def __init__(self, data_path, transform_params, data_prep_fun, rng,
-                 random, infinite, patient_ids=None, **kwargs):
+class DataGenerator(object):
+    def __init__(self, dataset, batch_size, img_ids, p_transform, data_prep_fun, rng,
+                 random, infinite, **kwargs):
 
-        if patient_ids:
-            self.patient_paths = [data_path + '/' + p + '.mhd' for p in patient_ids]
-        else:
-            patient_paths = utils_lung.get_patient_data_paths(data_path)
-            self.patient_paths = [p for p in patient_paths if '.mhd' in p]
 
-        self.id2annotations = utils_lung.read_luna_annotations(pathfinder.LUNA_LABELS_PATH)
-        self.nsamples = len(self.patient_paths)
-        self.data_path = data_path
+        self.dataset = dataset
+        self.img_ids = img_ids
+        self.batch_size = batch_size
+        self.p_transform = p_transform
+        self.data_prep_fun = data_prep_fun
         self.rng = rng
         self.random = random
         self.infinite = infinite
-        self.data_prep_fun = data_prep_fun
-        self.transform_params = transform_params
+
+        self.labels = app.get_labels()
 
     def generate(self):
         while True:
-            rand_idxs = np.arange(self.nsamples)
+            rand_idxs = np.arange(len(self.img_ids))
             if self.random:
                 self.rng.shuffle(rand_idxs)
-            for pos in xrange(0, len(rand_idxs)):
-                idx = rand_idxs[pos]
+            for pos in xrange(0, len(rand_idxs), self.batch_size):
+                idxs_batch = rand_idxs[pos:pos + self.batch_size]
+                nb = len(idxs_batch)
+                # allocate batches
+                if self.p_transform['channels']:
+                    x_batch = np.zeros((nb,) + self.p_transform['patch_size'], dtype='float32')
+                else:
+                    x_batch = np.zeros((nb, p_transform['channels']) + self.p_transform['patch_size'], dtype='float32')
+                y_batch = np.zeros((nb, self.p_transform['n_labels']), dtype='float32')
 
-                patient_path = self.patient_paths[idx]
-                pid = utils_lung.extract_pid_filename(patient_path)
+                batch_ids = []
 
-                img, origin, pixel_spacing = utils_lung.read_mhd(patient_path)
-                x, y, annotations, tf_matrix = self.data_prep_fun(data=img,
-                                                                  pixel_spacing=pixel_spacing,
-                                                                  luna_annotations=
-                                                                  self.id2annotations[pid],
-                                                                  luna_origin=origin)
+                for i, idx in enumerate(idxs_batch):
+                    img_id = self.img_ids[idx]
+                    batch_ids.append(img_id)
 
-                x = np.float32(x)[None, None, :, :, :]
-                y = np.float32(y)[None, None, :, :, :]
+                    img = app.read_image(self.dataset, img_id)
+                    x_batch[i] = self.data_prep_fun(data=img)
+                    
+                    y_batch[i] = self.labels[img_id]
 
-                yield x, y, None, annotations, tf_matrix, pid
+                if self.full_batch:
+                    if nb == self.batch_size:
+                        yield x_batch, y_batch, batch_ids
+                else:
+                    yield x_batch, y_batch, batch_ids
 
             if not self.infinite:
                 break
