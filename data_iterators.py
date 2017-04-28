@@ -13,6 +13,7 @@ class DataGenerator(object):
 
         self.dataset = dataset
         self.img_ids = img_ids
+        self.nsamples = len(img_ids)
         self.batch_size = batch_size
         self.p_transform = p_transform
         self.data_prep_fun = data_prep_fun
@@ -33,7 +34,7 @@ class DataGenerator(object):
                 nb = len(idxs_batch)
                 # allocate batches
                 if self.p_transform['channels']:
-                    x_batch = np.zeros((nb,p_transform['channels'],) + self.p_transform['patch_size'], dtype='float32')
+                    x_batch = np.zeros((nb,self.p_transform['channels'],) + self.p_transform['patch_size'], dtype='float32')
                 else:
                     x_batch = np.zeros((nb,) + self.p_transform['patch_size'], dtype='float32')
                 y_batch = np.zeros((nb, self.p_transform['n_labels']), dtype='float32')
@@ -45,12 +46,10 @@ class DataGenerator(object):
                     batch_ids.append(img_id)
 
                     img = app.read_image(self.dataset, img_id)
-                    if self.data_prep_fun:
-                        x_batch[i] = self.data_prep_fun(x=img)
-                    else:
-                        x_batch[i] = img
-                    
+                    x_batch[i] = self.data_prep_fun(x=img)
                     y_batch[i] = self.labels[img_id]
+                    print i, idx, y_batch[i]
+
 
                 if self.full_batch:
                     if nb == self.batch_size:
@@ -64,7 +63,7 @@ class DataGenerator(object):
 
 if __name__ == "__main__":
     #testing data iterator 
-    
+
     p_transform = {'patch_size': (128, 128),
                'channels': 4,
                'n_labels': 17}

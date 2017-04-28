@@ -17,8 +17,6 @@ def pixelnorm(x, MIN=0, MAX=61440.0):
     x = (x - MIN) / (MAX - MIN)
     return x
 
-
-
 default_channel_zmuv_stats = {
     'avg': [4970.55, 4245.35, 3064.64, 6360.08],
     'std': [1785.79, 1576.31, 1661.19, 1841.09]}
@@ -65,6 +63,24 @@ no_augmentation_params = {
     'do_flip': False,
     'allow_stretch': False,
 }
+
+
+def tiling(img, tile_shape):
+    tiles = []
+    for x in range(0,img.shape[0], tile_shape[0]):
+        for y in range(0,img.shape[1], tile_shape[1]):
+            for z in range(0,img.shape[2], tile_shape[2]):
+                print x,y,z
+                tiles.append(img[x:x+tile_shape[0],y:y+tile_shape[1],z:z+tile_shape[2]])
+    return tiles
+
+def _test_tiling():
+    tif = app.read_image('train', 0)
+    print tif.shape
+    tiles = tiling(tif,(4,128,128))
+    for tile in tiles:
+        print tile.shape  
+
 
 def build_center_uncenter_transforms(image_shape):
     """
@@ -144,9 +160,7 @@ def perturb(img, augmentation_params, target_shape, rng=rng, n_channels=4):
     
     chs = []
     for ch in range(n_channels):
-        print img[ch].shape
         ch_warped = fast_warp(img[ch], tform_centering + tform_augment, output_shape=target_shape, mode='constant').astype('float32')
-        print ch_warped.shape
         chs.append(ch_warped)
     out_img = np.stack(chs, axis=0)
     return out_img
@@ -173,21 +187,23 @@ def _print_stats_channels(img, channel_stats, channel_data):
 
 
 if __name__ == "__main__":
-    channel_stats = defaultdict(list)
-    channel_data = defaultdict(list)
-    for i in range(2000):
-        #read in image
-        print '***** ',i 
-        tif = app.read_image('train', i)
-        print tif.shape
-        utils_plots.plot_img(tif,'plots/test'+str(i)+'.jpg')
-        p_tif = perturb(tif, default_augmentation_params, (256,256), rng)
-        utils_plots.plot_img(p_tif,'plots/test'+str(i)+'_random_augm.jpg')
+    _test_tiling()
+
+    # channel_stats = defaultdict(list)
+    # channel_data = defaultdict(list)
+    # for i in range(2000):
+    #     #read in image
+    #     print '***** ',i 
+    #     tif = app.read_image('train', i)
+    #     print tif.shape
+    #     utils_plots.plot_img(tif,'plots/test'+str(i)+'.jpg')
+    #     p_tif = perturb(tif, default_augmentation_params, (256,256), rng)
+    #     utils_plots.plot_img(p_tif,'plots/test'+str(i)+'_random_augm.jpg')
 
 
-        tif = tif.astype('float32')
-        print tif.shape
-        print tif.dtype
+    #     tif = tif.astype('float32')
+    #     print tif.shape
+    #     print tif.dtype
         #_print_stats_channels(tif,channel_stats,channel_data)
 
     # print 'overall stats'

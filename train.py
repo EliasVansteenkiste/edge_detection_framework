@@ -71,7 +71,7 @@ givens_valid[model.l_in.input_var] = x_shared
 givens_valid[model.l_target.input_var] = y_shared
 
 # theano functions
-iter_train = theano.function([idx], train_loss, givens=givens_train, updates=updates)
+iter_train = theano.function([idx], [train_loss, nn.layers.get_output(model.l_out)], givens=givens_train, updates=updates)
 iter_validate = theano.function([], valid_loss, givens=givens_valid)
 
 if config().restart_from_save:
@@ -124,8 +124,8 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, buff
 
     # make nbatches_chunk iterations
     for b in xrange(config().nbatches_chunk):
-        loss = iter_train(b)
-        # print loss
+        loss, pred = iter_train(b)
+        print loss, pred 
         tmp_losses_train.append(loss)
         losses_train_print.append(loss)
 
