@@ -91,6 +91,8 @@ def load_pkl(path):
 def save_np(obj, path):
     np.save(file=path, arr=obj, fix_imports=True)
 
+def savez_compressed_np(obj, path):
+    np.savez_compressed(file=path, arr=obj)
 
 def load_np(path):
     return np.load(path)

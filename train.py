@@ -122,10 +122,21 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, buff
     x_shared.set_value(x_chunk_train)
     y_shared.set_value(y_chunk_train)
 
+    if np.isnan(x_chunk_train).any():
+        print 'x_chunk_train contains nan', id_train
+        raise
+
+    if np.isnan(y_chunk_train).any():
+        print 'y_chunk_train contains nan', id_train
+        raise
+
     # make nbatches_chunk iterations
     for b in xrange(config().nbatches_chunk):
         loss, pred = iter_train(b)
-        #print loss, pred 
+        if np.isnan(loss).any():
+            print 'loss', loss
+            print 'pred', pred 
+            raise 
         tmp_losses_train.append(loss)
         losses_train_print.append(loss)
 
