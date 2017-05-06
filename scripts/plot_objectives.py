@@ -46,13 +46,22 @@ print 'max training f2 score', np.amax(np.array(training_f2)), 'at', np.argmax(n
 print 'max validation f2 score', np.amax(np.array(validation_f2)), 'at', np.argmax(np.array(validation_f2)), '/', len(validation_f2)
 
 
-plt.plot(training_errors, label='training errors')
-plt.plot(validation_errors, label='validation errors')
-plt.legend(loc="upper right")
+fig = plt.figure()
 plt.title(sys.argv[1])
-plt.xlabel('Epoch')
-#plt.ylim(0, 0.7)
-plt.ylabel('Error')	
+ax = fig.add_subplot(111)
+ax.plot(training_errors, label='training errors')
+ax.plot(validation_errors, label='validation errors')
+
+ax2 = ax.twinx()
+ax2.plot(training_f2, label='training f2 score')
+ax2.plot(validation_f2, label='validation f2 score')
+
+ax.legend(loc="center right")
+ax2.legend(loc="center left")
+ax.grid()
+ax.set_xlabel('Epoch')
+ax.set_ylabel(r"Mean BCE")
+ax2.set_ylabel(r"F2 score")
 plt.savefig(sys.argv[2])
 
 
