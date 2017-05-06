@@ -90,11 +90,11 @@ save_every = int(1. * nchunks_per_epoch)
 
 learning_rate_schedule = {
     0: 5e-4,
-    int(max_nchunks * 0.3): 2e-4,
-    int(max_nchunks * 0.45): 1e-4,
-    int(max_nchunks * 0.55): 5e-5,
-    int(max_nchunks * 0.65): 2e-5,
-    int(max_nchunks * 0.75): 1e-5
+    int(max_nchunks * 0.5): 2e-4,
+    int(max_nchunks * 0.6): 1e-4,
+    int(max_nchunks * 0.7): 5e-5,
+    int(max_nchunks * 0.8): 2e-5,
+    int(max_nchunks * 0.9): 1e-5
 }
 
 # model
@@ -114,81 +114,33 @@ dense = partial(lasagne.layers.DenseLayer,
                 nonlinearity=lasagne.nonlinearities.very_leaky_rectify)
 
 
-def inrn_v2(lin):
-    n_base_filter = 32
-
-    l1 = conv(lin, n_base_filter, filter_size=1)
-
-    l2 = conv(lin, n_base_filter, filter_size=1)
-    l2 = conv(l2, n_base_filter, filter_size=3)
-
-    l3 = conv(lin, n_base_filter, filter_size=1)
-    l3 = conv(l3, n_base_filter, filter_size=3)
-    l3 = conv(l3, n_base_filter, filter_size=3)
-
-    l = lasagne.layers.ConcatLayer([l1, l2, l3])
-
-    l = conv(l, lin.output_shape[1], filter_size=1)
-
-    l = lasagne.layers.ElemwiseSumLayer([l, lin])
-
-    l = lasagne.layers.NonlinearityLayer(l, nonlinearity=lasagne.nonlinearities.rectify)
-
-    return l
-
-
-def inrn_v2_red(lin):
-    # We want to reduce our total volume /4
-
-    den = 16
-    nom2 = 4
-    nom3 = 5
-    nom4 = 7
-
-    ins = lin.output_shape[1]
-
-    l1 = max_pool(lin)
-
-    l2 = conv(lin, ins // den * nom2, filter_size=3, stride=2)
-
-    l3 = conv(lin, ins // den * nom2, filter_size=1)
-    l3 = conv(l3, ins // den * nom3, filter_size=3, stride=2)
-
-    l4 = conv(lin, ins // den * nom2, filter_size=1)
-    l4 = conv(l4, ins // den * nom3, filter_size=3)
-    l4 = conv(l4, ins // den * nom4, filter_size=3, stride=2)
-
-    l = lasagne.layers.ConcatLayer([l1, l2, l3, l4])
-
-    return l
-
-
-def feat_red(lin):
-    # We want to reduce the feature maps by a factor of 2
-    ins = lin.output_shape[1]
-    l = conv(lin, ins // 2, filter_size=1)
-    return l
-
 
 def build_model(l_in=None):
     l_in = nn.layers.InputLayer((None, p_transform['channels'],) + p_transform['patch_size']) if l_in is None else l_in
     l_target = nn.layers.InputLayer((None,p_transform['n_labels']))
 
     l = conv(l_in, 64)
-    l = inrn_v2_red(l)
-    l = inrn_v2(l)
-    l = feat_red(l)
-    l = inrn_v2(l)
+    l = conv(l, 64)
+    l = max_pool(l)
+    l = conv(l, 64)
+    l = conv(l, 64)
+    l = max_pool(l)
+    l = conv(l, 128)
+    l = conv(l, 128)
+    l = max_pool(l)
 
-    l = inrn_v2_red(l)
-    l = inrn_v2(l)
-    l = feat_red(l)
-    l = inrn_v2(l)
-    l = inrn_v2_red(l)
 
-    l = feat_red(l)
+    l = conv(l, 128)
+    l = conv(l, 128)
+    l = max_pool(l)
+    l = drop(l, p=0.5)
 
-    l = dense(drop(l), 128)
+    l = conv(l, 256)
+    l = conv(l, 256)
+    l = max_pool(l)
+    l = drop(l, p=0.75)
+
+    l = dense(l, 512)
 
     l_out = nn.layers.DenseLayer(l, num_units=p_transform['n_labels'],
                                  W=nn.init.Orthogonal(),
@@ -215,6 +167,7 @@ def build_objective2(model, deterministic=False, epsilon=1.e-7):
     f2 = 5.*tp/(5.*tp+4.*fn+fp+epsilon)
 
     return T.mean(f2)
+
 
 def build_updates(train_loss, model, learning_rate):
     updates = nn.updates.adam(train_loss, nn.layers.get_all_params(model.l_out, trainable=True), learning_rate)

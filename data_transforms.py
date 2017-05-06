@@ -45,6 +45,7 @@ def channel_norm(x, img_stats = default_channel_norm_stats, percentiles=[1,99], 
         minimum = img_stats[percentiles[0]][ch]
         maximum = img_stats[percentiles[1]][ch]
         x[ch] = (x[ch] - minimum) / (maximum-minimum)
+    return x
 
 default_augmentation_params = {
     'zoom_range': (1 / 1.1, 1.1),

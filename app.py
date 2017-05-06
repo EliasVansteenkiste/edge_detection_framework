@@ -1,6 +1,7 @@
 import numpy as np # linear algebra
 import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
 from skimage import io
+from sklearn.metrics import fbeta_score
 
 import pathfinder
 import utils
@@ -46,9 +47,14 @@ def save_image_compressed(dataset, idx):
     
 
 def get_labels():
-    df_train = pd.read_csv(pathfinder.DATA_PATH+'train.csv')
-    df_train = pd.concat([df_train['image_name'], df_train.tags.str.get_dummies(sep=' ')], axis=1)
-    return df_train
+    df = pd.read_csv(pathfinder.DATA_PATH+'train.csv')
+    df = pd.concat([df['image_name'], df.tags.str.get_dummies(sep=' ')], axis=1)
+    cols = list(df.columns.values) #Make a list of all of the columns in the df
+    weather_labels = ['clear', 'partly_cloudy', 'haze', 'cloudy']
+    for label in weather_labels:
+        cols.pop(cols.index(label)) #Remove b from list
+    df = df[weather_labels+cols] #
+    return df
 
 def get_labels_array():
     df = get_labels()
@@ -128,6 +134,11 @@ def make_stratified_split(no_folds=5, verbose=False):
 
     return folds
 
+def f2_score(y_true, y_pred):
+    # fbeta_score throws a confusing error if inputs are not numpy arrays
+    y_true, y_pred, = np.array(y_true), np.array(y_pred)
+    # We need to use average='samples' here, any other average method will generate bogus results
+    return fbeta_score(y_true, y_pred, beta=2, average='samples')
 
 
 if __name__ == "__main__":

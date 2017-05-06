@@ -50,7 +50,7 @@ def data_prep_function_valid(x, p_transform=p_transform, **kwargs):
 
 
 # data iterators
-batch_size = 16
+batch_size = 8
 nbatches_chunk = 1
 chunk_size = batch_size * nbatches_chunk
 
@@ -90,11 +90,11 @@ save_every = int(1. * nchunks_per_epoch)
 
 learning_rate_schedule = {
     0: 5e-4,
-    int(max_nchunks * 0.3): 2e-4,
-    int(max_nchunks * 0.45): 1e-4,
-    int(max_nchunks * 0.55): 5e-5,
-    int(max_nchunks * 0.65): 2e-5,
-    int(max_nchunks * 0.75): 1e-5
+    int(max_nchunks * 0.5): 2e-4,
+    int(max_nchunks * 0.6): 1e-4,
+    int(max_nchunks * 0.7): 5e-5,
+    int(max_nchunks * 0.8): 2e-5,
+    int(max_nchunks * 0.9): 1e-5
 }
 
 # model
@@ -108,87 +108,77 @@ max_pool = partial(dnn.MaxPool2DDNNLayer,
                      pool_size=2)
 
 drop = lasagne.layers.DropoutLayer
+batch_norm = lasagne.layers.batch_norm
+ConvLayer = lasagne.layers.Conv2DLayer
+rectify = lasagne.nonlinearities.rectify
 
 dense = partial(lasagne.layers.DenseLayer,
                 W=lasagne.init.Orthogonal(),
                 nonlinearity=lasagne.nonlinearities.very_leaky_rectify)
 
 
-def inrn_v2(lin):
-    n_base_filter = 32
+# create a residual learning building block with two stacked 3x3 convlayers as in paper
+def residual_block(l, increase_dim=False, projection=False):
+    input_num_filters = l.output_shape[1]
+    if increase_dim:
+        first_stride = (2,2)
+        out_num_filters = input_num_filters*2
+    else:
+        first_stride = (1,1)
+        out_num_filters = input_num_filters
 
-    l1 = conv(lin, n_base_filter, filter_size=1)
+    stack_1 = batch_norm(ConvLayer(l, num_filters=out_num_filters, filter_size=(3,3), stride=first_stride, nonlinearity=rectify, pad='same', W=lasagne.init.HeNormal(gain='relu'), flip_filters=False))
+    stack_2 = batch_norm(ConvLayer(stack_1, num_filters=out_num_filters, filter_size=(3,3), stride=(1,1), nonlinearity=None, pad='same', W=lasagne.init.HeNormal(gain='relu'), flip_filters=False))
+    
+    # add shortcut connections
+    if increase_dim:
+        if projection:
+            # projection shortcut, as option B in paper
+            projection = batch_norm(ConvLayer(l, num_filters=out_num_filters, filter_size=(1,1), stride=(2,2), nonlinearity=None, pad='same', b=None, flip_filters=False))
+            block = nn.layers.NonlinearityLayer(nn.layers.ElemwiseSumLayer([stack_2, projection]),nonlinearity=rectify)
+        else:
+            # identity shortcut, as option A in paper
+            identity = nn.layers.ExpressionLayer(l, lambda X: X[:, :, ::2, ::2], lambda s: (s[0], s[1], s[2]//2, s[3]//2))
+            padding = nn.layers.PadLayer(identity, [out_num_filters//4,0,0], batch_ndim=1)
+            block = nn.layers.NonlinearityLayer(nn.layers.ElemwiseSumLayer([stack_2, padding]),nonlinearity=rectify)
+    else:
+        block = nn.layers.NonlinearityLayer(nn.layers.ElemwiseSumLayer([stack_2, l]),nonlinearity=rectify)
+    
+    return block
 
-    l2 = conv(lin, n_base_filter, filter_size=1)
-    l2 = conv(l2, n_base_filter, filter_size=3)
-
-    l3 = conv(lin, n_base_filter, filter_size=1)
-    l3 = conv(l3, n_base_filter, filter_size=3)
-    l3 = conv(l3, n_base_filter, filter_size=3)
-
-    l = lasagne.layers.ConcatLayer([l1, l2, l3])
-
-    l = conv(l, lin.output_shape[1], filter_size=1)
-
-    l = lasagne.layers.ElemwiseSumLayer([l, lin])
-
-    l = lasagne.layers.NonlinearityLayer(l, nonlinearity=lasagne.nonlinearities.rectify)
-
-    return l
-
-
-def inrn_v2_red(lin):
-    # We want to reduce our total volume /4
-
-    den = 16
-    nom2 = 4
-    nom3 = 5
-    nom4 = 7
-
-    ins = lin.output_shape[1]
-
-    l1 = max_pool(lin)
-
-    l2 = conv(lin, ins // den * nom2, filter_size=3, stride=2)
-
-    l3 = conv(lin, ins // den * nom2, filter_size=1)
-    l3 = conv(l3, ins // den * nom3, filter_size=3, stride=2)
-
-    l4 = conv(lin, ins // den * nom2, filter_size=1)
-    l4 = conv(l4, ins // den * nom3, filter_size=3)
-    l4 = conv(l4, ins // den * nom4, filter_size=3, stride=2)
-
-    l = lasagne.layers.ConcatLayer([l1, l2, l3, l4])
-
-    return l
-
-
-def feat_red(lin):
-    # We want to reduce the feature maps by a factor of 2
-    ins = lin.output_shape[1]
-    l = conv(lin, ins // 2, filter_size=1)
-    return l
 
 
 def build_model(l_in=None):
+
+
     l_in = nn.layers.InputLayer((None, p_transform['channels'],) + p_transform['patch_size']) if l_in is None else l_in
     l_target = nn.layers.InputLayer((None,p_transform['n_labels']))
 
-    l = conv(l_in, 64)
-    l = inrn_v2_red(l)
-    l = inrn_v2(l)
-    l = feat_red(l)
-    l = inrn_v2(l)
+    n=5
 
-    l = inrn_v2_red(l)
-    l = inrn_v2(l)
-    l = feat_red(l)
-    l = inrn_v2(l)
-    l = inrn_v2_red(l)
+    # first layer, output is 64 x 256 x 256
+    l = batch_norm(ConvLayer(l_in, num_filters=64, filter_size=(3,3), stride=(1,1), nonlinearity=rectify, pad='same', W=lasagne.init.HeNormal(gain='relu'), flip_filters=False))
 
-    l = feat_red(l)
+    # first stack of residual blocks, output is 128 x 128 x 128
+    l = residual_block(l, increase_dim=True)
 
-    l = dense(drop(l), 128)
+    # second stack of residual blocks, output is 256 x 64 x 64
+    l = residual_block(l, increase_dim=True)
+    for _ in range(1,n):
+        l = residual_block(l)
+
+    # third stack of residual blocks, output is 512 x 32 x 32
+    l = residual_block(l, increase_dim=True)
+    for _ in range(1,n):
+        l = residual_block(l)
+
+    # fourth stack of residual blocks, output is 1024 x 16 x 16
+    l = residual_block(l, increase_dim=True)
+    for _ in range(1,n):
+        l = residual_block(l)
+
+    # average pooling
+    l = nn.layers.GlobalPoolLayer(l)
 
     l_out = nn.layers.DenseLayer(l, num_units=p_transform['n_labels'],
                                  W=nn.init.Orthogonal(),

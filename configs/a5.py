@@ -90,11 +90,11 @@ save_every = int(1. * nchunks_per_epoch)
 
 learning_rate_schedule = {
     0: 5e-4,
-    int(max_nchunks * 0.3): 2e-4,
-    int(max_nchunks * 0.45): 1e-4,
-    int(max_nchunks * 0.55): 5e-5,
-    int(max_nchunks * 0.65): 2e-5,
-    int(max_nchunks * 0.75): 1e-5
+    int(max_nchunks * 0.5): 2e-4,
+    int(max_nchunks * 0.6): 1e-4,
+    int(max_nchunks * 0.7): 5e-5,
+    int(max_nchunks * 0.8): 2e-5,
+    int(max_nchunks * 0.9): 1e-5
 }
 
 # model
@@ -175,20 +175,22 @@ def build_model(l_in=None):
     l_target = nn.layers.InputLayer((None,p_transform['n_labels']))
 
     l = conv(l_in, 64)
+
     l = inrn_v2_red(l)
-    l = inrn_v2(l)
-    l = feat_red(l)
     l = inrn_v2(l)
 
     l = inrn_v2_red(l)
     l = inrn_v2(l)
-    l = feat_red(l)
-    l = inrn_v2(l)
+
     l = inrn_v2_red(l)
+    l = inrn_v2(l)
 
-    l = feat_red(l)
+    l = inrn_v2_red(l)
+    l = inrn_v2(l)
 
-    l = dense(drop(l), 128)
+    l = drop(l)
+    l = nn.layers.GlobalPoolLayer(l)
+
 
     l_out = nn.layers.DenseLayer(l, num_units=p_transform['n_labels'],
                                  W=nn.init.Orthogonal(),

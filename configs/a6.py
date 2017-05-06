@@ -1,3 +1,5 @@
+
+#config a6 is equivalent to a5, except the normalization
 import numpy as np
 import lasagne as nn
 from collections import namedtuple
@@ -12,7 +14,7 @@ import pathfinder
 import utils
 import app
 
-restart_from_save = None
+restart_from_save = '/data/metadata/plnt//models/eavsteen/a6-20170504-213931.pkl'
 rng = np.random.RandomState(42)
 
 # transformations
@@ -31,21 +33,30 @@ p_augmentation = {
 }
 
 
-channel_zmuv_stats = {
-    'avg': [4970.55, 4245.35, 3064.64, 6360.08],
-    'std': [1785.79, 1576.31, 1661.19, 1841.09]}
+channel_norm_stats = {
+    0.1: [2739., 2022., 1284., 1091.],
+    0.5: [3016., 2272., 1433., 1415.],
+    1: [3149., 2441., 1563.,  1733.],
+    5: [3514., 2867., 1792., 3172.],
+    10: [3661., 3016., 1902., 4132.],
+    50: [4503., 3768., 2534., 6399.],
+    90: [6615., 5912., 4694., 8311.],
+    95: [7623., 6822., 5698., 9109.],
+    99: [11065., 10184., 9047., 11561.],
+    99.5: [14686., 13508., 12197., 12820.],
+    99.9: [23722., 16926., 19183., 16523.]}
 
 # data preparation function
 def data_prep_function_train(x, p_transform=p_transform, p_augmentation=p_augmentation, **kwargs):
     x = x.astype(np.float32)
     x = data_transforms.perturb(x, p_augmentation, p_transform['patch_size'], rng)
-    x = data_transforms.channel_zmuv(x, img_stats = channel_zmuv_stats, no_channels=4)
+    x = data_transforms.channel_norm(x, img_stats = channel_norm_stats, percentiles=[.1,99.9], no_channels=4)
     return x
 
 def data_prep_function_valid(x, p_transform=p_transform, **kwargs):
     #take a patch in the middle of the chip
     x = x.astype(np.float32)
-    x = data_transforms.channel_zmuv(x, img_stats = channel_zmuv_stats, no_channels=4)
+    x = data_transforms.channel_norm(x, img_stats = channel_norm_stats, percentiles=[.1,99.9], no_channels=4)
     return x
 
 
@@ -82,7 +93,7 @@ valid_data_iterator = data_iterators.DataGenerator(dataset='train',
                                                     full_batch=False, random=False, infinite=False)
 
 nchunks_per_epoch = train_data_iterator.nsamples / chunk_size
-max_nchunks = nchunks_per_epoch * 100
+max_nchunks = nchunks_per_epoch * 50
 
 
 validate_every = int(0.1 * nchunks_per_epoch)
@@ -90,11 +101,11 @@ save_every = int(1. * nchunks_per_epoch)
 
 learning_rate_schedule = {
     0: 5e-4,
-    int(max_nchunks * 0.3): 2e-4,
-    int(max_nchunks * 0.45): 1e-4,
-    int(max_nchunks * 0.55): 5e-5,
-    int(max_nchunks * 0.65): 2e-5,
-    int(max_nchunks * 0.75): 1e-5
+    int(max_nchunks * 0.4): 2e-4,
+    int(max_nchunks * 0.6): 1e-4,
+    int(max_nchunks * 0.7): 5e-5,
+    int(max_nchunks * 0.8): 2e-5,
+    int(max_nchunks * 0.9): 1e-5
 }
 
 # model
@@ -175,20 +186,22 @@ def build_model(l_in=None):
     l_target = nn.layers.InputLayer((None,p_transform['n_labels']))
 
     l = conv(l_in, 64)
+
     l = inrn_v2_red(l)
-    l = inrn_v2(l)
-    l = feat_red(l)
     l = inrn_v2(l)
 
     l = inrn_v2_red(l)
     l = inrn_v2(l)
-    l = feat_red(l)
-    l = inrn_v2(l)
+
     l = inrn_v2_red(l)
+    l = inrn_v2(l)
 
-    l = feat_red(l)
+    l = inrn_v2_red(l)
+    l = inrn_v2(l)
 
-    l = dense(drop(l), 128)
+    l = drop(l)
+    l = nn.layers.GlobalPoolLayer(l)
+
 
     l_out = nn.layers.DenseLayer(l, num_units=p_transform['n_labels'],
                                  W=nn.init.Orthogonal(),

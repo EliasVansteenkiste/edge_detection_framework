@@ -44,13 +44,14 @@ class DataGenerator(object):
                 for i, idx in enumerate(idxs_batch):
                     img_id = self.img_ids[idx]
                     batch_ids.append(img_id)
-                    #print i, idx, img_id,
 
-                    img = app.read_image(self.dataset, img_id)
+                    # print img_id
+                    img = app.read_compressed_image(self.dataset, img_id)
                     x_batch[i] = self.data_prep_fun(x=img)
                     y_batch[i] = self.labels[img_id]
-                    #print y_batch[i]
 
+
+                    #print 'i', i, 'img_id', img_id, y_batch[i]
 
                 if self.full_batch:
                     if nb == self.batch_size:
@@ -74,13 +75,18 @@ if __name__ == "__main__":
         x = x[:,:128,:128]
         return x
 
+    folds = app.make_stratified_split(no_folds=5)
+    all_ids = folds[0] + folds[1] + folds[2] + folds[3] +folds[4]
+    bad_ids = [18772, 28173, 5023]
+    img_ids = [x for x in all_ids if x not in bad_ids]
+
     dg = DataGenerator(dataset='train',
                         batch_size=10,
-                        img_ids = np.arange(100),
+                        img_ids = img_ids,
                         p_transform=p_transform,
                         data_prep_fun = data_prep_fun,
                         rng=rng,
-                        full_batch=True, random=True, infinite=True)
+                        full_batch=True, random=False, infinite=False)
 
     for (x_chunk, y_chunk, id_train) in buffering.buffered_gen_threaded(dg.generate()):
         print x_chunk.shape, y_chunk.shape, id_train
