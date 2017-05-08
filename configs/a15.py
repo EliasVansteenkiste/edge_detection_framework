@@ -199,6 +199,12 @@ def build_model(l_in=None):
     l = inrn_v2_red(l)
     l = inrn_v2(l)
 
+    l = inrn_v2_red(l)
+    l = inrn_v2(l)
+    
+    l = inrn_v2_red(l)
+    l = inrn_v2(l)
+
     l = drop(l)
     l = nn.layers.GlobalPoolLayer(l)
 
@@ -225,8 +231,10 @@ def build_objective(model, deterministic=False, epsilon=1.e-7):
     targets = T.flatten(nn.layers.get_output(model.l_target))
     preds = T.clip(predictions, epsilon, 1.-epsilon)
     #logs = [-T.log(preds), -T.log(1-preds)]
-    bce = - 5 * targets * T.log(preds) - (1-targets)*T.log(1-preds)
-    return T.mean(bce)
+    weighted_bce = - 5 * targets * T.log(preds) - (1-targets)*T.log(1-preds)    
+    reg = nn.regularization.l2(predictions)                                                                                                                                                                                       
+    weight_decay=0.00004
+    return T.mean(weighted_bce) + weight_decay * reg 
 
 def build_objective2(model, deterministic=False, epsilon=1.e-7):
     predictions = T.flatten(nn.layers.get_output(model.l_out, deterministic=deterministic))

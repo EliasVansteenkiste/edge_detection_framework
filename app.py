@@ -24,9 +24,9 @@ def read_compressed_image(dataset, idx):
 
 def read_image(dataset, idx):
     if dataset == 'train':
-        prefix = 'train-tif/train_'
+        prefix = 'train-tif-v2/train_'
     elif dataset == 'test':
-        prefix = 'test-tif/test_'
+        prefix = 'test-tif-v2/test_'
     else:
         raise
     path = pathfinder.DATA_PATH + prefix + str(idx) + '.tif'
@@ -134,6 +134,16 @@ def make_stratified_split(no_folds=5, verbose=False):
 
     return folds
 
+def generate_compressed_trainset():
+    folds = make_stratified_split(no_folds=5)
+    all_ids = folds[0] + folds[1] + folds[2] + folds[3] +folds[4]
+    bad_ids = [18772, 28173, 5023]
+    img_ids = [x for x in all_ids if x not in bad_ids]
+    for idx, img_id in enumerate(img_ids):
+        if idx%100 == 0:
+            print idx, '/', len(img_ids)
+        save_image_compressed('train', img_id)
+
 def f2_score(y_true, y_pred):
     # fbeta_score throws a confusing error if inputs are not numpy arrays
     y_true, y_pred, = np.array(y_true), np.array(y_pred)
@@ -143,15 +153,8 @@ def f2_score(y_true, y_pred):
 
 if __name__ == "__main__":
     #make_stratified_split()
+    generate_compressed_trainset()
 
-    folds = make_stratified_split(no_folds=5)
-    all_ids = folds[0] + folds[1] + folds[2] + folds[3] +folds[4]
-    bad_ids = [18772, 28173, 5023]
-    img_ids = [x for x in all_ids if x not in bad_ids]
-    for idx, img_id in enumerate(img_ids):
-        if idx%100 == 0:
-            print idx, '/', len(img_ids)
-        save_image_compressed('train', img_id)
 
 
 
