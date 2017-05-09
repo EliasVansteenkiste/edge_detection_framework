@@ -7,7 +7,7 @@ import app
 import buffering
 
 class DataGenerator(object):
-    def __init__(self, dataset, batch_size, img_ids, p_transform, data_prep_fun, rng,
+    def __init__(self, dataset, batch_size, img_ids, p_transform, data_prep_fun, label_prep_fun, rng,
                  random, infinite, full_batch, **kwargs):
 
 
@@ -17,6 +17,7 @@ class DataGenerator(object):
         self.batch_size = batch_size
         self.p_transform = p_transform
         self.data_prep_fun = data_prep_fun
+        self.label_prep_fun = label_prep_fun
         self.rng = rng
         self.random = random
         self.infinite = infinite
@@ -48,7 +49,7 @@ class DataGenerator(object):
                     # print img_id
                     img = app.read_compressed_image(self.dataset, img_id)
                     x_batch[i] = self.data_prep_fun(x=img)
-                    y_batch[i] = self.labels[img_id]
+                    y_batch[i] = self.label_prep_fun(self.labels[img_id])
 
 
                     #print 'i', i, 'img_id', img_id, y_batch[i]
