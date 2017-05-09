@@ -63,7 +63,7 @@ def data_prep_function_valid(x, p_transform=p_transform, **kwargs):
 
 
 # data iterators
-batch_size = 16
+batch_size = 32
 nbatches_chunk = 1
 chunk_size = batch_size * nbatches_chunk
 
@@ -132,7 +132,7 @@ dense = partial(lasagne.layers.DenseLayer,
                 W=lasagne.init.Orthogonal(),
                 nonlinearity=lasagne.nonlinearities.very_leaky_rectify)
 
-bn = partial(nn.layers.BatchNormLayer, alpha=0.99, epsilon=0.001)
+bn = partial(nn.layers.BatchNormLayer, alpha=0.8, epsilon=0.001)
 nl = partial(nn.layers.NonlinearityLayer, nonlinearity=lasagne.nonlinearities.rectify)
 
 
@@ -162,34 +162,14 @@ def residual_block(lin):
 
 def reduction_block(lin):
     # We want to reduce our total volume /4
-
-    den = 16
-    nom2 = 4
-    nom3 = 5
-    nom4 = 7
-
     ins = lin.output_shape[1]
-
-    l = nl(bn(lin))
 
     l1 = max_pool(l)
 
     l2 = sconv(l, ins // den * nom2, filter_size=3, stride=2)
     l2 = nl(bn(l2))
 
-    l3 = sconv(l, ins // den * nom2, filter_size=1)
-    l3 = nl(bn(l3))
-    l3 = sconv(l3, ins // den * nom3, filter_size=3, stride=2)
-    l3 = nl(bn(l3))
-
-    l4 = sconv(l, ins // den * nom2, filter_size=1)
-    l4 = nl(bn(l4))
-    l4 = sconv(l4, ins // den * nom3, filter_size=3)
-    l4 = nl(bn(l4))
-    l4 = conv(l4, ins // den * nom4, filter_size=3, stride=2)
-    l4 = nl(bn(l4))
-
-    l = lasagne.layers.ConcatLayer([l1, l2, l3, l4])
+    l = lasagne.layers.ConcatLayer([l1, l2])
 
     return l
 
@@ -205,27 +185,20 @@ def build_model(l_in=None):
     l_in = nn.layers.InputLayer((None, p_transform['channels'],) + p_transform['patch_size']) if l_in is None else l_in
     l_target = nn.layers.InputLayer((None,p_transform['n_labels']))
 
-    l = conv(l_in, 32)
+    l = conv(l_in, 64)
 
     l = reduction_block(l)
     l = residual_block(l)
 
     l = reduction_block(l)
     l = residual_block(l)
+
+    l = reduction_block(l)
     l = residual_block(l)
 
     l = reduction_block(l)
     l = residual_block(l)
-    l = residual_block(l)
-    l = residual_block(l)
 
-    l = reduction_block(l)
-    l = residual_block(l)
-    l = residual_block(l)
-    l = residual_block(l)
-    l = residual_block(l)
-
-    l = drop(l)
     l = nn.layers.GlobalPoolLayer(l)
 
 
