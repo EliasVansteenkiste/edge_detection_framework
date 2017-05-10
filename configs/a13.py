@@ -136,21 +136,20 @@ bn = partial(nn.layers.BatchNormLayer, alpha=0.8, epsilon=0.001)
 nl = partial(nn.layers.NonlinearityLayer, nonlinearity=lasagne.nonlinearities.rectify)
 
 
-def residual_block(lin):
-    n_base_filter = 32
-
+def residual_block(lin, n_base_filter = 64):
+    
     ins = lin.output_shape[1]
     n_base_filter = ins//2
 
     l = nl(bn(lin))
 
-    l1 = sconv(l, n_base_filter, filter_size=1)
+    l1 = sconv(l, n_base_filter)
     l1 = nl(bn(l1))
-    l1 = sconv(l1, n_base_filter, filter_size=3)
+    l1 = sconv(l1, n_base_filter)
 
-    l2 = sconv(l, n_base_filter, filter_size=3)
+    l2 = sconv(l, n_base_filter)
     l2 = nl(bn(l2))
-    l2 = sconv(l2, n_base_filter, filter_size=3)
+    l2 = sconv(l2, n_base_filter)
 
     l = lasagne.layers.ConcatLayer([l1, l2])
 
@@ -164,9 +163,9 @@ def reduction_block(lin):
     # We want to reduce our total volume /4
     ins = lin.output_shape[1]
 
-    l1 = max_pool(l)
+    l1 = max_pool(lin)
 
-    l2 = sconv(l, ins // den * nom2, filter_size=3, stride=2)
+    l2 = sconv(lin, ins, stride=2)
     l2 = nl(bn(l2))
 
     l = lasagne.layers.ConcatLayer([l1, l2])
