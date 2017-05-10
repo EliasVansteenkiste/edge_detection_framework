@@ -1,5 +1,3 @@
-#Not yet uploaded config
-
 
 #config a6 is equivalent to a5, except the normalization
 import numpy as np
@@ -22,7 +20,7 @@ rng = np.random.RandomState(42)
 # transformations
 p_transform = {'patch_size': (256, 256),
                'channels': 4,
-               'n_labels': 17}
+               'n_labels': 11}
 
 
 p_augmentation = {
@@ -61,9 +59,17 @@ def data_prep_function_valid(x, p_transform=p_transform, **kwargs):
     x = data_transforms.channel_norm(x, img_stats = channel_norm_stats, percentiles=[.1,99.9], no_channels=4)
     return x
 
+def label_prep_function(x):
+    #cut out the rare labels and merge them
+    y_p = np.zeros((11,))
+    y_p[0:4] = x[0:4]
+    y_p[4] = 1. if np.sum(x[4:11]>0.5) else 0.
+    y_p[5:] = x[11:]
+    y_p = y_p.astype(np.float32)
+    return y_p
 
 # data iterators
-batch_size = 32
+batch_size = 16
 nbatches_chunk = 1
 chunk_size = batch_size * nbatches_chunk
 
@@ -78,24 +84,32 @@ train_ids = [x for x in train_ids if x not in bad_ids]
 valid_ids = [x for x in valid_ids if x not in bad_ids]
 
 
+
 train_data_iterator = data_iterators.DataGenerator(dataset='train',
                                                     batch_size=chunk_size,
                                                     img_ids = train_ids,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_train,
-                                                    rng=rng,
-                                                    full_batch=True, random=True, infinite=True)
+                                                    label_prep_fun = label_prep_function,
+                                                    rng=rng, 
+                                                    full_batch=True, 
+                                                    random=True, 
+                                                    infinite=True)
+
 
 valid_data_iterator = data_iterators.DataGenerator(dataset='train',
                                                     batch_size=chunk_size,
                                                     img_ids = valid_ids,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_valid,
-                                                    rng=rng,
-                                                    full_batch=False, random=False, infinite=False)
+                                                    label_prep_fun = label_prep_function,
+                                                    rng=rng, 
+                                                    full_batch=False, 
+                                                    random=False, 
+                                                    infinite=False)
 
 nchunks_per_epoch = train_data_iterator.nsamples / chunk_size
-max_nchunks = nchunks_per_epoch * 50
+max_nchunks = nchunks_per_epoch * 40
 
 
 validate_every = int(0.1 * nchunks_per_epoch)
@@ -117,12 +131,6 @@ conv = partial(dnn.Conv2DDNNLayer,
                  W=nn.init.Orthogonal(),
                  nonlinearity=nn.nonlinearities.very_leaky_rectify)
 
-sconv = partial(dnn.Conv2DDNNLayer,
-                 filter_size=3,
-                 pad='same',
-                 W=nn.init.Orthogonal(),
-                 nonlinearity=nn.nonlinearities.identity) 
-
 max_pool = partial(dnn.MaxPool2DDNNLayer,
                      pool_size=2)
 
@@ -132,43 +140,52 @@ dense = partial(lasagne.layers.DenseLayer,
                 W=lasagne.init.Orthogonal(),
                 nonlinearity=lasagne.nonlinearities.very_leaky_rectify)
 
-bn = partial(nn.layers.BatchNormLayer, alpha=0.8, epsilon=0.001)
-nl = partial(nn.layers.NonlinearityLayer, nonlinearity=lasagne.nonlinearities.rectify)
 
+def inrn_v2(lin):
+    n_base_filter = 32
 
-def residual_block(lin, n_base_filter = 64):
-    
-    ins = lin.output_shape[1]
-    n_base_filter = ins//2
+    l1 = conv(lin, n_base_filter, filter_size=1)
 
-    l = nl(bn(lin))
+    l2 = conv(lin, n_base_filter, filter_size=1)
+    l2 = conv(l2, n_base_filter, filter_size=3)
 
-    l1 = sconv(l, n_base_filter)
-    l1 = nl(bn(l1))
-    l1 = sconv(l1, n_base_filter)
+    l3 = conv(lin, n_base_filter, filter_size=1)
+    l3 = conv(l3, n_base_filter, filter_size=3)
+    l3 = conv(l3, n_base_filter, filter_size=3)
 
-    l2 = sconv(l, n_base_filter)
-    l2 = nl(bn(l2))
-    l2 = sconv(l2, n_base_filter)
+    l = lasagne.layers.ConcatLayer([l1, l2, l3])
 
-    l = lasagne.layers.ConcatLayer([l1, l2])
+    l = conv(l, lin.output_shape[1], filter_size=1)
 
     l = lasagne.layers.ElemwiseSumLayer([l, lin])
 
+    l = lasagne.layers.NonlinearityLayer(l, nonlinearity=lasagne.nonlinearities.rectify)
 
     return l
 
 
-def reduction_block(lin):
+def inrn_v2_red(lin):
     # We want to reduce our total volume /4
+
+    den = 16
+    nom2 = 4
+    nom3 = 5
+    nom4 = 7
+
     ins = lin.output_shape[1]
 
     l1 = max_pool(lin)
 
-    l2 = sconv(lin, ins, stride=2)
-    l2 = nl(bn(l2))
+    l2 = conv(lin, ins // den * nom2, filter_size=3, stride=2)
 
-    l = lasagne.layers.ConcatLayer([l1, l2])
+    l3 = conv(lin, ins // den * nom2, filter_size=1)
+    l3 = conv(l3, ins // den * nom3, filter_size=3, stride=2)
+
+    l4 = conv(lin, ins // den * nom2, filter_size=1)
+    l4 = conv(l4, ins // den * nom3, filter_size=3)
+    l4 = conv(l4, ins // den * nom4, filter_size=3, stride=2)
+
+    l = lasagne.layers.ConcatLayer([l1, l2, l3, l4])
 
     return l
 
@@ -186,21 +203,20 @@ def build_model(l_in=None):
 
     l = conv(l_in, 64)
 
-    l = reduction_block(l)
-    l = residual_block(l)
+    l = inrn_v2_red(l)
+    l = inrn_v2(l)
 
-    l = reduction_block(l)
-    l = residual_block(l)
-    l = residual_block(l)
+    l = inrn_v2_red(l)
+    l = inrn_v2(l)
 
-    l = reduction_block(l)
-    l = residual_block(l)
-    l = residual_block(l)
+    l = inrn_v2_red(l)
+    l = inrn_v2(l)
 
-    l = reduction_block(l)
-    l = residual_block(l)
-    l = residual_block(l)
-    l = residual_block(l)
+    l = inrn_v2_red(l)
+    l = inrn_v2(l)
+
+    l = inrn_v2_red(l)
+    l = inrn_v2(l)
 
     l = drop(l)
     l = nn.layers.GlobalPoolLayer(l)
@@ -228,8 +244,10 @@ def build_objective(model, deterministic=False, epsilon=1.e-7):
     targets = T.flatten(nn.layers.get_output(model.l_target))
     preds = T.clip(predictions, epsilon, 1.-epsilon)
     #logs = [-T.log(preds), -T.log(1-preds)]
-    bce = - 5 * targets * T.log(preds) - (1-targets)*T.log(1-preds)
-    return T.mean(bce)
+    weighted_bce = - 5 * targets * T.log(preds) - (1-targets)*T.log(1-preds)    
+    reg = nn.regularization.l2(predictions)                                                                                                                                                                                       
+    weight_decay=0.00004
+    return T.mean(weighted_bce) + weight_decay * reg 
 
 def build_objective2(model, deterministic=False, epsilon=1.e-7):
     predictions = T.flatten(nn.layers.get_output(model.l_out, deterministic=deterministic))

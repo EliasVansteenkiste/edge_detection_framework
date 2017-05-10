@@ -51,9 +51,13 @@ def get_labels():
     df = pd.concat([df['image_name'], df.tags.str.get_dummies(sep=' ')], axis=1)
     cols = list(df.columns.values) #Make a list of all of the columns in the df
     weather_labels = ['clear', 'partly_cloudy', 'haze', 'cloudy']
+    rare_labels = ['slash_burn','conventional_mine', 'bare_ground', 'artisinal_mine',
+                    'blooming','selective_logging','blow_down']
     for label in weather_labels:
         cols.pop(cols.index(label)) #Remove b from list
-    df = df[weather_labels+cols] #
+    for label in rare_labels:
+        cols.pop(cols.index(label)) #Remove b from list
+    df = df[weather_labels+rare_labels+cols] #
     return df
 
 def get_labels_array():
@@ -158,9 +162,8 @@ if __name__ == "__main__":
     #make_stratified_split()
     bad_ids = [18772, 28173, 5023]
     generate_compressed(bad_ids)
-
-
-
+    #generate_compressed_trainset()
+    #get_labels()
 
 
 
