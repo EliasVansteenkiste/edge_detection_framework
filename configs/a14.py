@@ -59,6 +59,9 @@ def data_prep_function_valid(x, p_transform=p_transform, **kwargs):
     x = data_transforms.channel_norm(x, img_stats = channel_norm_stats, percentiles=[.1,99.9], no_channels=4)
     return x
 
+def label_prep_function(label):
+    return label
+
 
 # data iterators
 batch_size = 16
@@ -81,6 +84,7 @@ train_data_iterator = data_iterators.DataGenerator(dataset='train',
                                                     img_ids = train_ids,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_train,
+                                                    label_prep_fun = label_prep_function,
                                                     rng=rng,
                                                     full_batch=True, random=True, infinite=True)
 
@@ -89,6 +93,7 @@ valid_data_iterator = data_iterators.DataGenerator(dataset='train',
                                                     img_ids = valid_ids,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_valid,
+                                                    label_prep_fun = label_prep_function,
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 

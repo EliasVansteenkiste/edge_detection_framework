@@ -74,7 +74,7 @@ test = sys.argv[2] == 'test'
 if valid:
     data_iterator = config().valid_data_iterator
 elif test:
-    data_iterator = config().valid_data_iterator
+    data_iterator = config().test_data_iterator
 
 print
 print 'Data'

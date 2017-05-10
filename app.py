@@ -96,10 +96,11 @@ def top_occ(feat_comb, n_top = 5):
     print 'checksum', sum(feat_comb)
 
 def make_stratified_split(no_folds=5, verbose=False):
-    df = get_labels()
-    only_labels = df.drop(['image_name'], axis = 1, inplace = False)
-    only_labels = only_labels.as_matrix()
-    if verbose: print 'labels shape', only_labels.shape
+    only_labels = get_labels_array()
+    # df = get_labels()
+    # only_labels = df.drop(['image_name'], axis = 1, inplace = False)
+    # only_labels = only_labels.as_matrix()
+    # if verbose: print 'labels shape', only_labels.shape
     feat_comb = only_labels.dot(1 << np.arange(only_labels.shape[-1] - 1, -1, -1))
     feat_comb_set = set(feat_comb)
     feat_comb_occ = np.bincount(feat_comb)
@@ -138,6 +139,33 @@ def make_stratified_split(no_folds=5, verbose=False):
 
     return folds
 
+
+def investigate_labels():
+    only_labels_all = get_labels_array()
+    feat_comb = only_labels_all.dot(1 << np.arange(only_labels_all.shape[-1] - 1, -1, -1))
+    feat_comb_set = set(feat_comb)
+    print 'number of combinations when all labels are present'
+    print len(feat_comb_set)
+    feat_comb_occ = np.bincount(feat_comb)
+
+    for i in range(17):
+        print 'cutting out label', i
+        only_labels_sel = np.copy(only_labels_all)
+        only_labels_sel = np.delete(only_labels_sel,i, axis=1)
+        print only_labels_sel.shape
+        feat_comb = only_labels_sel.dot(1 << np.arange(only_labels_sel.shape[-1] - 1, -1, -1))
+        feat_comb_set = set(feat_comb)
+        print 'number of features', len(feat_comb_set)
+        feat_comb_occ = np.bincount(feat_comb)
+
+def get_pos_neg_ids(label_id):
+    labels = get_labels_array()
+    pos_ids = np.where(labels[:,label_id])
+    neg_ids = np.where(labels[:,label_id]==0)
+    return pos_ids[0], neg_ids[0]
+
+
+
 def generate_compressed(img_ids):
     for idx, img_id in enumerate(img_ids):
         if idx%100 == 0:
@@ -159,11 +187,21 @@ def f2_score(y_true, y_pred, average='samples'):
 
 
 if __name__ == "__main__":
-    #make_stratified_split()
-    bad_ids = [18772, 28173, 5023]
-    generate_compressed(bad_ids)
-    #generate_compressed_trainset()
-    #get_labels()
+    #investigate_labels()
+    # bad_ids = [18772, 28173, 5023]
+    # generate_compressed(bad_ids)
+    # labels = get_labels_array()
+    # print labels[:10]
+    # print labels.shape
+    # for i in range(17):
+    #     pos_ids, neg_ids = get_pos_neg_ids(i)
+    #     print len(pos_ids), len(neg_ids), len(pos_ids)+len(neg_ids)
+
+    print get_labels()
+
+
+
+
 
 
 
