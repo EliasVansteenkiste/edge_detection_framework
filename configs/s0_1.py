@@ -59,7 +59,7 @@ def data_prep_function_valid(x, p_transform=p_transform, **kwargs):
     x = data_transforms.channel_norm(x, img_stats = channel_norm_stats, percentiles=[.1,99.9], no_channels=4)
     return x
 
-label_id = 4
+label_id = 1
 def label_prep_function(x):
     #cut out the label
     return x[label_id]
@@ -105,11 +105,11 @@ valid_data_iterator = data_iterators.DataGenerator(dataset='train',
                                                     full_batch=False, random=False, infinite=False)
 
 nchunks_per_epoch = train_data_iterator.min_samples / chunk_size
-max_nchunks = nchunks_per_epoch * 800
+max_nchunks = nchunks_per_epoch * 200
 
 
-validate_every = int(8. * nchunks_per_epoch)
-save_every = int(16. * nchunks_per_epoch)
+validate_every = int(1. * nchunks_per_epoch)
+save_every = int(2. * nchunks_per_epoch)
 
 print 'validate_every', validate_every
 print 'save_every', save_every
@@ -230,6 +230,10 @@ def build_model(l_in=None):
     return namedtuple('Model', ['l_in', 'l_out', 'l_target'])(l_in, l_out, l_target)
 
 
+biases = [ 0.69673164,  0.17912992,  0.06657773,  0.05756071,  0.00516317,  0.00247042,
+  0.02122088,  0.00837471,  0.00820178,  0.00839942,  0.00242101, 0.30480002,
+  0.11060056,  0.09046666,  0.9348057,   0.19951086,  0.17940167]
+
 def build_objective(model, deterministic=False, epsilon=1.e-7):
     predictions = T.flatten(nn.layers.get_output(model.l_out, deterministic=deterministic))
     targets = T.flatten(nn.layers.get_output(model.l_target))
@@ -241,11 +245,16 @@ def build_objective(model, deterministic=False, epsilon=1.e-7):
     return T.mean(weighted_bce) + weight_decay * reg 
 
 
-def build_objective2(model, deterministic=False, epsilon=1.e-7):
+def build_objective2(model, deterministic=False, bias = app.get_biases()[label_id], epsilon=1.e-7):
     predictions = T.flatten(nn.layers.get_output(model.l_out, deterministic=deterministic))
     targets = T.flatten(nn.layers.get_output(model.l_target))
-    preds = T.clip(predictions, epsilon, 1.-epsilon)
-    return T.mean(nn.objectives.binary_crossentropy(preds, targets))
+    preds = predictions*np.float32(0.5/bias)
+    preds = T.clip(preds, epsilon, 1.-epsilon)
+    #logs = [-T.log(preds), -T.log(1-preds)]
+    weighted_bce = - 5 * targets * T.log(preds) - (1-targets)*T.log(1-preds)    
+    reg = nn.regularization.l2(predictions)                                                                                                                                                                                       
+    weight_decay=0.00004
+    return T.mean(weighted_bce) + weight_decay * reg 
 
 def build_test_objective(model, deterministic=False, bias = app.get_biases()[label_id],  epsilon=1.e-7):
     predictions = T.flatten(nn.layers.get_output(model.l_out, deterministic=deterministic))
@@ -255,14 +264,18 @@ def build_test_objective(model, deterministic=False, bias = app.get_biases()[lab
     return T.mean(nn.objectives.binary_crossentropy(preds, targets))
 
 def score(gts, preds):
-    preds_cutoff = [1 if p>0.5 else 0 for p in preds]
-    return app.f2_score(gts, preds_cutoff, average=None)
+    treshold = 0.5
+    preds_cutoff = np.array([1 if p>treshold else 0 for p in preds])
+    gts  = np.array(gts)
+    tp = np.sum(gts*preds_cutoff)
+    fp = np.sum((1-gts)*preds_cutoff)
+    fn = np.sum(gts*(1-preds_cutoff))
+    return np.array([tp, fp, fn])
 
 def test_score(gts, preds, bias = app.get_biases()[label_id], epsilon=1.e-11):
     predictions = np.array(preds)/0.5*bias
     preds_cutoff = [1 if p>0.5 else 0 for p in predictions]
     return app.f2_score(gts, preds_cutoff, average=None)
-    
 
 def build_updates(train_loss, model, learning_rate):
     updates = nn.updates.adam(train_loss, nn.layers.get_all_params(model.l_out, trainable=True), learning_rate)

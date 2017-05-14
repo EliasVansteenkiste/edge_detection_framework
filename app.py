@@ -165,6 +165,14 @@ def get_pos_neg_ids(label_id):
     return pos_ids[0], neg_ids[0]
 
 
+def get_biases():
+    df = get_labels()
+    df = df.drop(['image_name'], axis = 1, inplace = False)
+    label_list = list(df.columns.values)
+    histo = df[label_list].sum()
+    biases =  1.*np.int32(histo)/len(df.index)
+    return biases
+
 
 def generate_compressed(img_ids):
     for idx, img_id in enumerate(img_ids):
@@ -185,6 +193,22 @@ def f2_score(y_true, y_pred, average='samples'):
     # We need to use average='samples' here, any other average method will generate bogus results
     return fbeta_score(y_true, y_pred, beta=2, average=average)
 
+def _test_get_pos_neg_ids():
+    for i in range(17):
+        pos_ids, neg_ids = get_pos_neg_ids(i)
+        print i, len(pos_ids), len(neg_ids), len(pos_ids)+len(neg_ids)
+        print get_labels_array()[pos_ids[0]]
+        print get_labels_array()[pos_ids[1]]
+        print get_labels_array()[neg_ids[0]]
+        print get_labels_array()[neg_ids[1]]
+        print 'test done'
+
+
+def logloss(predictions, targets, epsilon=1.e-7, skewing_factor = 1.):
+    preds = np.clip(predictions, epsilon, 1.-epsilon)
+    weighted_bce = - skewing_factor * targets * np.log(preds) - (1-targets)*np.log(1-preds)    
+    return np.mean(weighted_bce)
+
 
 if __name__ == "__main__":
     #investigate_labels()
@@ -193,16 +217,17 @@ if __name__ == "__main__":
     # labels = get_labels_array()
     # print labels[:10]
     # print labels.shape
-    # for i in range(17):
-    #     pos_ids, neg_ids = get_pos_neg_ids(i)
-    #     print len(pos_ids), len(neg_ids), len(pos_ids)+len(neg_ids)
 
-    print get_labels()
+    # a = np.random.randint(0, 2, 1000)
+    # b = np.random.randint(0, 2, 1000)
+    # f2 = fbeta_score(a, b, beta=2, average=None)
+    # print f2
+    # tp = sum(a*b)
+    # fp = sum(a*(1-b))
+    # fn = sum((1-a)*b)
+    # print 5.*tp/(5.*tp+4.*fn+fp)
 
-
-
-
-
-
-
-
+    print 'main function'
+    targets = np.array([1,1,0,0,0,1,0,1,1,0,1,0,1])
+    predictions = np.array([.8,.95,.1,.05,0,.9,0,.99,.92,.12,.96,.03,.89])
+    print skewed_logloss(predictions,targets)

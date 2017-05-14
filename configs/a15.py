@@ -242,6 +242,9 @@ def build_objective2(model, deterministic=False, epsilon=1.e-7):
     preds = T.clip(predictions, epsilon, 1.-epsilon)
     return T.mean(nn.objectives.binary_crossentropy(preds, targets))
 
+def score(gts, preds):
+    return app.f2_score(gts, preds)
+
 def build_updates(train_loss, model, learning_rate):
     updates = nn.updates.adam(train_loss, nn.layers.get_all_params(model.l_out, trainable=True), learning_rate)
     return updates

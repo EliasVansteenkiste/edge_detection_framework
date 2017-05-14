@@ -120,6 +120,17 @@ if valid:
     qpreds = preds > threshold
     print app.f2_score(targs[:,:17], qpreds[:,:17])
     print app.f2_score(targs[:,:17], qpreds[:,:17], average=None)
+    print 'loglosses'
+    print app.logloss(preds.flatten(), targs.flatten())
+    print [app.logloss(preds[:,i], targs[:,i]) for i in range(17)]
+    print [sklearn.metrics.log_loss(targs[:,i], preds[:,i], eps=1e-7) for i in range(17)]
+    print 'logloss sklearn'
+    print sklearn.metrics.log_loss(targs, preds)
+    print sklearn.metrics.log_loss(targs.flatten(), preds.flatten(), eps=1e-7)
+    print 'skewed loglosses'
+    print app.logloss(preds.flatten(), targs.flatten(),skewing_factor=5.)
+    print [app.logloss(preds[:,i], targs[:,i],skewing_factor=5.) for i in range(17)]
+
 
 
 
