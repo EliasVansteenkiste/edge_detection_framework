@@ -79,9 +79,6 @@ bad_ids = [18772, 28173, 5023]
 train_ids = [x for x in train_ids if x not in bad_ids]
 valid_ids = [x for x in valid_ids if x not in bad_ids]
 
-test_ids = np.arange(40669)
-test2_ids = np.arange(20522)
-
 
 train_data_iterator = data_iterators.DataGenerator(dataset='train',
                                                     batch_size=chunk_size,
@@ -104,24 +101,6 @@ feat_data_iterator = data_iterators.DataGenerator(dataset='train',
 valid_data_iterator = data_iterators.DataGenerator(dataset='train',
                                                     batch_size=chunk_size,
                                                     img_ids = valid_ids,
-                                                    p_transform=p_transform,
-                                                    data_prep_fun = data_prep_function_valid,
-                                                    label_prep_fun = label_prep_function,
-                                                    rng=rng,
-                                                    full_batch=False, random=False, infinite=False)
-
-test_data_iterator = data_iterators.DataGenerator(dataset='test',
-                                                    batch_size=chunk_size,
-                                                    img_ids = test_ids,
-                                                    p_transform=p_transform,
-                                                    data_prep_fun = data_prep_function_valid,
-                                                    label_prep_fun = label_prep_function,
-                                                    rng=rng,
-                                                    full_batch=False, random=False, infinite=False)
-
-test2_data_iterator = data_iterators.DataGenerator(dataset='test2',
-                                                    batch_size=chunk_size,
-                                                    img_ids = test2_ids,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_valid,
                                                     label_prep_fun = label_prep_function,
@@ -235,26 +214,35 @@ def build_model(l_in=None):
     l = inrn_v2_red(l)
     l = inrn_v2(l)
 
-    l = inrn_v2_red(l)
-    l = inrn_v2(l)
+    l_hydra = inrn_v2_red(l)
+    
 
-    l = drop(l)
-    l_feat = nn.layers.GlobalPoolLayer(l)
+    l_weather = inrn_v2(l_hydra)
+
+    l_weather = drop(l_weather)
+    l_weather = nn.layers.GlobalPoolLayer(l_weather)
 
 
-    l = nn.layers.DenseLayer(l_feat, num_units=p_transform['n_labels'],
+    l_weather = nn.layers.DenseLayer(l_weather, num_units=4,
                                  W=nn.init.Orthogonal(),
                                  b=nn.init.Constant(0.5),
-                                 nonlinearity=nn.nonlinearities.identity)
+                                 nonlinearity=nn.nonlinearities.softmax)
+    final_layers = [l_weather]
+    feature_layers = []
 
+    for i in range(p_transform['n_labels']-4):
+        l = inrn_v2(l_hydra)
+        l = drop(l)
+        l = nn.layers.GlobalPoolLayer(l)
+        feature_layers.append(l)
+        l = nn.layers.DenseLayer(l, num_units=1,
+                                     W=nn.init.Orthogonal(),
+                                     b=nn.init.Constant(0.5),
+                                     nonlinearity=nn.nonlinearities.sigmoid)
+        final_layers.append(l)
 
-    l_weather = nn.layers.SliceLayer(l, indices=slice(0,4), axis=-1)
-    l_weather = nn.layers.NonlinearityLayer(l_weather, nonlinearity=nn.nonlinearities.softmax)
-
-    l_other = nn.layers.SliceLayer(l, indices=slice(4,None), axis=-1)
-    l_other = nn.layers.NonlinearityLayer(l_other, nonlinearity=nn.nonlinearities.sigmoid)
-
-    l_out = nn.layers.ConcatLayer([l_weather, l_other], axis=-1)
+    l_out = nn.layers.ConcatLayer(final_layers, axis=-1)
+    l_feat = nn.layers.ConcatLayer(feature_layers, axis=-1)
 
     return namedtuple('Model', ['l_in', 'l_out', 'l_target', 'l_feat'])(l_in, l_out, l_target, l_feat)
 
@@ -275,10 +263,13 @@ def build_objective2(model, deterministic=False, epsilon=1.e-7):
     preds = T.clip(predictions, epsilon, 1.-epsilon)
     return T.mean(nn.objectives.binary_crossentropy(preds, targets))
 
-def score(gts, preds, epsilon=1.e-11):
-    return app.f2_score_arr(gts, preds)
+def score(gts, preds):
+    preds_cutoff = np.digitize(preds,bins=[-0.01,0.5,1.01])
+    preds_cutoff = preds_cutoff-1
+    return app.f2_score(gts, preds_cutoff)
 
 test_score = score
+
 
 def build_updates(train_loss, model, learning_rate):
     updates = nn.updates.adam(train_loss, nn.layers.get_all_params(model.l_out, trainable=True), learning_rate)

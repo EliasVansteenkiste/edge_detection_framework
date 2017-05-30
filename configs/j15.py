@@ -13,6 +13,7 @@ import data_iterators
 import pathfinder
 import utils
 import app
+import nn_planet
 
 restart_from_save = None
 rng = np.random.RandomState(42)
@@ -33,30 +34,21 @@ p_augmentation = {
 }
 
 
-channel_norm_stats = {
-    0.1: [2739., 2022., 1284., 1091.],
-    0.5: [3016., 2272., 1433., 1415.],
-    1: [3149., 2441., 1563.,  1733.],
-    5: [3514., 2867., 1792., 3172.],
-    10: [3661., 3016., 1902., 4132.],
-    50: [4503., 3768., 2534., 6399.],
-    90: [6615., 5912., 4694., 8311.],
-    95: [7623., 6822., 5698., 9109.],
-    99: [11065., 10184., 9047., 11561.],
-    99.5: [14686., 13508., 12197., 12820.],
-    99.9: [23722., 16926., 19183., 16523.]}
 
 # data preparation function
 def data_prep_function_train(x, p_transform=p_transform, p_augmentation=p_augmentation, **kwargs):
+    x = np.array(x)
+    x = np.swapaxes(x,0,2)
+    x = x / 255.
     x = x.astype(np.float32)
-    x = data_transforms.perturb(x, p_augmentation, p_transform['patch_size'], rng)
-    x = data_transforms.channel_norm(x, img_stats = channel_norm_stats, percentiles=[.1,99.9], no_channels=4)
+    x = data_transforms.perturb(x, p_augmentation, p_transform['patch_size'], rng, n_channels=p_transform['channels'])
     return x
 
 def data_prep_function_valid(x, p_transform=p_transform, **kwargs):
-    #take a patch in the middle of the chip
+    x = np.array(x)
+    x = np.swapaxes(x,0,2)
+    x = x / 255.
     x = x.astype(np.float32)
-    x = data_transforms.channel_norm(x, img_stats = channel_norm_stats, percentiles=[.1,99.9], no_channels=4)
     return x
 
 def label_prep_function(label):
@@ -74,7 +66,7 @@ train_ids = folds[0] + folds[1] + folds[2] + folds[3]
 valid_ids = folds[4]
 all_ids = folds[0] + folds[1] + folds[2] + folds[3] + folds[4]
 
-bad_ids = [18772, 28173, 5023]
+bad_ids = []
 
 train_ids = [x for x in train_ids if x not in bad_ids]
 valid_ids = [x for x in valid_ids if x not in bad_ids]
@@ -83,7 +75,7 @@ test_ids = np.arange(40669)
 test2_ids = np.arange(20522)
 
 
-train_data_iterator = data_iterators.DataGenerator(dataset='train',
+train_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     batch_size=chunk_size,
                                                     img_ids = train_ids,
                                                     p_transform=p_transform,
@@ -92,7 +84,7 @@ train_data_iterator = data_iterators.DataGenerator(dataset='train',
                                                     rng=rng,
                                                     full_batch=True, random=True, infinite=True)
 
-feat_data_iterator = data_iterators.DataGenerator(dataset='train',
+feat_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     batch_size=chunk_size,
                                                     img_ids = all_ids,
                                                     p_transform=p_transform,
@@ -101,7 +93,7 @@ feat_data_iterator = data_iterators.DataGenerator(dataset='train',
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 
-valid_data_iterator = data_iterators.DataGenerator(dataset='train',
+valid_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     batch_size=chunk_size,
                                                     img_ids = valid_ids,
                                                     p_transform=p_transform,
@@ -110,7 +102,7 @@ valid_data_iterator = data_iterators.DataGenerator(dataset='train',
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 
-test_data_iterator = data_iterators.DataGenerator(dataset='test',
+test_data_iterator = data_iterators.DataGenerator(dataset='test-jpg',
                                                     batch_size=chunk_size,
                                                     img_ids = test_ids,
                                                     p_transform=p_transform,
@@ -119,7 +111,7 @@ test_data_iterator = data_iterators.DataGenerator(dataset='test',
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 
-test2_data_iterator = data_iterators.DataGenerator(dataset='test2',
+test2_data_iterator = data_iterators.DataGenerator(dataset='test2-jpg',
                                                     batch_size=chunk_size,
                                                     img_ids = test2_ids,
                                                     p_transform=p_transform,
@@ -251,8 +243,8 @@ def build_model(l_in=None):
     l_weather = nn.layers.SliceLayer(l, indices=slice(0,4), axis=-1)
     l_weather = nn.layers.NonlinearityLayer(l_weather, nonlinearity=nn.nonlinearities.softmax)
 
-    l_other = nn.layers.SliceLayer(l, indices=slice(4,None), axis=-1)
-    l_other = nn.layers.NonlinearityLayer(l_other, nonlinearity=nn.nonlinearities.sigmoid)
+    l_other = nn_planet.MajorExclusivityLayer(l, idx_major=0)
+    l_other = nn.layers.SliceLayer(l_other, indices=slice(4,None), axis=-1)
 
     l_out = nn.layers.ConcatLayer([l_weather, l_other], axis=-1)
 

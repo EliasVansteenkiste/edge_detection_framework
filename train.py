@@ -130,7 +130,8 @@ gts_train_print = []
 losses_time_print = []
 
 # use buffering.buffered_gen_threaded()
-for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, train_data_iterator.generate()):
+for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, buffering.buffered_gen_threaded(
+        train_data_iterator.generate(), buffer_size=128)):
     if chunk_idx in learning_rate_schedule:
         lr = np.float32(learning_rate_schedule[chunk_idx])
         print '  setting learning rate to %.7f' % lr
@@ -140,6 +141,7 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, trai
     # load chunk to GPU
     x_shared.set_value(x_chunk_train)
     y_shared.set_value(y_chunk_train)
+
     for gt in y_chunk_train:
         tmp_gts.append(gt)
         tmp_gts_train.append(gt)
@@ -151,18 +153,37 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, trai
     for b in xrange(config().nbatches_chunk):
         losses_time_print.append(time.time())
         loss, loss2, pred = iter_train(b)
-        if np.isnan(loss).any():
+        if np.isnan(pred).any():
+            print 'nan in pred'
             print 'loss', loss
             print 'loss2', loss2
             print 'pred', pred 
             print 'y_chunk_train', y_chunk_train
             raise 
+        elif np.isnan(loss).any():
+            print 'nan in loss'
+            print 'loss', loss
+            print 'loss2', loss2
+            print 'pred', pred 
+            print 'y_chunk_train', y_chunk_train
+            raise 
+        elif np.isnan(loss2).any():
+            print 'nan in loss2'
+            print 'loss', loss
+            print 'loss2', loss2
+            print 'pred', pred 
+            print 'y_chunk_train', y_chunk_train
+            raise 
+        # else:
+        #     print 'loss', loss
+        #     print 'loss2', loss2
+        #     print 'pred', pred 
+
         #print loss, pred
         for pr in pred:
-            pred_cutoff = [1 if p>0.5 else 0 for p in pr]
-            tmp_preds.append(pred_cutoff)
-            tmp_preds_train.append(pred_cutoff)
-            preds_train_print.append(pred_cutoff)
+            tmp_preds.append(pr)
+            tmp_preds_train.append(pr)
+            preds_train_print.append(pr)
 
         tmp_losses_train.append(loss)
         tmp_losses_train2.append(loss2)
@@ -210,8 +231,7 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, trai
             for gt in y_chunk_valid:
                 tmp_gts_valid.append(gt)
             for pr in pred:
-                pred_cutoff = [1 if p>0.5 else 0 for p in pr]
-                tmp_preds_valid.append(pred_cutoff)
+                tmp_preds_valid.append(pr)
             #print i, l_valid, l_valid2
             tmp_losses_valid.append(l_valid)
             tmp_losses_valid2.append(l_valid2)
@@ -220,7 +240,7 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, trai
         # calculate validation loss across validation set
         valid_loss = np.mean(tmp_losses_valid)
         valid_loss2 = np.mean(tmp_losses_valid2)
-        valid_score = np.mean(config().score(tmp_gts_valid, tmp_preds_valid))
+        valid_score = np.mean(config().test_score(tmp_gts_valid, tmp_preds_valid))
         print 'Validation loss: ', valid_loss, valid_loss2, valid_score
         losses_eval_valid.append(valid_loss)
         losses_eval_valid2.append(valid_loss2)
@@ -255,3 +275,4 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, trai
             }, f, pickle.HIGHEST_PROTOCOL)
             print '  saved to %s' % metadata_path
             print
+

@@ -20,7 +20,7 @@ rng = np.random.RandomState(42)
 # transformations
 p_transform = {'patch_size': (256, 256),
                'channels': 4,
-               'n_labels': 17}
+               'n_labels': 1}
 
 
 p_augmentation = {
@@ -59,9 +59,10 @@ def data_prep_function_valid(x, p_transform=p_transform, **kwargs):
     x = data_transforms.channel_norm(x, img_stats = channel_norm_stats, percentiles=[.1,99.9], no_channels=4)
     return x
 
-def label_prep_function(label):
-    return label
-
+label_id = 15
+def label_prep_function(x):
+    #cut out the label
+    return x[label_id]
 
 # data iterators
 batch_size = 16
@@ -72,15 +73,13 @@ folds = app.make_stratified_split(no_folds=5)
 print len(folds)
 train_ids = folds[0] + folds[1] + folds[2] + folds[3]
 valid_ids = folds[4]
-all_ids = folds[0] + folds[1] + folds[2] + folds[3] + folds[4]
 
-bad_ids = [18772, 28173, 5023]
+bad_ids = []
 
 train_ids = [x for x in train_ids if x not in bad_ids]
 valid_ids = [x for x in valid_ids if x not in bad_ids]
 
-test_ids = np.arange(40669)
-test2_ids = np.arange(20522)
+
 
 
 train_data_iterator = data_iterators.DataGenerator(dataset='train',
@@ -92,14 +91,6 @@ train_data_iterator = data_iterators.DataGenerator(dataset='train',
                                                     rng=rng,
                                                     full_batch=True, random=True, infinite=True)
 
-feat_data_iterator = data_iterators.DataGenerator(dataset='train',
-                                                    batch_size=chunk_size,
-                                                    img_ids = all_ids,
-                                                    p_transform=p_transform,
-                                                    data_prep_fun = data_prep_function_valid,
-                                                    label_prep_fun = label_prep_function,
-                                                    rng=rng,
-                                                    full_batch=False, random=False, infinite=False)
 
 valid_data_iterator = data_iterators.DataGenerator(dataset='train',
                                                     batch_size=chunk_size,
@@ -110,38 +101,23 @@ valid_data_iterator = data_iterators.DataGenerator(dataset='train',
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 
-test_data_iterator = data_iterators.DataGenerator(dataset='test',
-                                                    batch_size=chunk_size,
-                                                    img_ids = test_ids,
-                                                    p_transform=p_transform,
-                                                    data_prep_fun = data_prep_function_valid,
-                                                    label_prep_fun = label_prep_function,
-                                                    rng=rng,
-                                                    full_batch=False, random=False, infinite=False)
-
-test2_data_iterator = data_iterators.DataGenerator(dataset='test2',
-                                                    batch_size=chunk_size,
-                                                    img_ids = test2_ids,
-                                                    p_transform=p_transform,
-                                                    data_prep_fun = data_prep_function_valid,
-                                                    label_prep_fun = label_prep_function,
-                                                    rng=rng,
-                                                    full_batch=False, random=False, infinite=False)
-
 nchunks_per_epoch = train_data_iterator.nsamples / chunk_size
 max_nchunks = nchunks_per_epoch * 40
 
 
-validate_every = int(0.1 * nchunks_per_epoch)
+validate_every = int(.25 * nchunks_per_epoch)
 save_every = int(1. * nchunks_per_epoch)
 
+print 'validate_every', validate_every
+print 'save_every', save_every
+
 learning_rate_schedule = {
-    0: 5e-4,
-    int(max_nchunks * 0.4): 2e-4,
-    int(max_nchunks * 0.6): 1e-4,
-    int(max_nchunks * 0.7): 5e-5,
-    int(max_nchunks * 0.8): 2e-5,
-    int(max_nchunks * 0.9): 1e-5
+    0: 2e-4,
+    int(max_nchunks * 0.4): 1e-4,
+    int(max_nchunks * 0.6): 5e-5,
+    int(max_nchunks * 0.7): 2e-5,
+    int(max_nchunks * 0.8): 1e-5,
+    int(max_nchunks * 0.9): 5e-6
 }
 
 # model
@@ -219,7 +195,7 @@ def feat_red(lin):
 
 def build_model(l_in=None):
     l_in = nn.layers.InputLayer((None, p_transform['channels'],) + p_transform['patch_size']) if l_in is None else l_in
-    l_target = nn.layers.InputLayer((None,p_transform['n_labels']))
+    l_target = nn.layers.InputLayer((None,))
 
     l = conv(l_in, 64)
 
@@ -232,32 +208,22 @@ def build_model(l_in=None):
     l = inrn_v2_red(l)
     l = inrn_v2(l)
 
-    l = inrn_v2_red(l)
-    l = inrn_v2(l)
-
-    l = inrn_v2_red(l)
-    l = inrn_v2(l)
-
     l = drop(l)
-    l_feat = nn.layers.GlobalPoolLayer(l)
+    l = nn.layers.GlobalPoolLayer(l)
 
 
-    l = nn.layers.DenseLayer(l_feat, num_units=p_transform['n_labels'],
+    l_out = nn.layers.DenseLayer(l, num_units=1,
                                  W=nn.init.Orthogonal(),
                                  b=nn.init.Constant(0.5),
-                                 nonlinearity=nn.nonlinearities.identity)
+                                 nonlinearity=nn.nonlinearities.sigmoid)
 
 
-    l_weather = nn.layers.SliceLayer(l, indices=slice(0,4), axis=-1)
-    l_weather = nn.layers.NonlinearityLayer(l_weather, nonlinearity=nn.nonlinearities.softmax)
+    return namedtuple('Model', ['l_in', 'l_out', 'l_target'])(l_in, l_out, l_target)
 
-    l_other = nn.layers.SliceLayer(l, indices=slice(4,None), axis=-1)
-    l_other = nn.layers.NonlinearityLayer(l_other, nonlinearity=nn.nonlinearities.sigmoid)
 
-    l_out = nn.layers.ConcatLayer([l_weather, l_other], axis=-1)
-
-    return namedtuple('Model', ['l_in', 'l_out', 'l_target', 'l_feat'])(l_in, l_out, l_target, l_feat)
-
+biases = [ 0.69673164,  0.17912992,  0.06657773,  0.05756071,  0.00516317,  0.00247042,
+  0.02122088,  0.00837471,  0.00820178,  0.00839942,  0.00242101, 0.30480002,
+  0.11060056,  0.09046666,  0.9348057,   0.19951086,  0.17940167]
 
 def build_objective(model, deterministic=False, epsilon=1.e-7):
     predictions = T.flatten(nn.layers.get_output(model.l_out, deterministic=deterministic))
@@ -269,16 +235,38 @@ def build_objective(model, deterministic=False, epsilon=1.e-7):
     weight_decay=0.00004
     return T.mean(weighted_bce) + weight_decay * reg 
 
-def build_objective2(model, deterministic=False, epsilon=1.e-7):
+
+def build_objective2(model, deterministic=False, bias = app.get_biases()[label_id], epsilon=1.e-7):
     predictions = T.flatten(nn.layers.get_output(model.l_out, deterministic=deterministic))
     targets = T.flatten(nn.layers.get_output(model.l_target))
-    preds = T.clip(predictions, epsilon, 1.-epsilon)
+    preds = predictions*np.float32(0.5/bias)
+    preds = T.clip(preds, epsilon, 1.-epsilon)
+    #logs = [-T.log(preds), -T.log(1-preds)]
+    weighted_bce = - 5 * targets * T.log(preds) - (1-targets)*T.log(1-preds)    
+    reg = nn.regularization.l2(predictions)                                                                                                                                                                                       
+    weight_decay=0.00004
+    return T.mean(weighted_bce) + weight_decay * reg 
+
+def build_test_objective(model, deterministic=False, bias = app.get_biases()[label_id],  epsilon=1.e-7):
+    predictions = T.flatten(nn.layers.get_output(model.l_out, deterministic=deterministic))
+    targets = T.flatten(nn.layers.get_output(model.l_target))
+    preds = predictions*np.float32(0.5/bias)
+    preds = T.clip(preds, epsilon, 1.-epsilon)
     return T.mean(nn.objectives.binary_crossentropy(preds, targets))
 
-def score(gts, preds, epsilon=1.e-11):
-    return app.f2_score_arr(gts, preds)
+def score(gts, preds):
+    treshold = 0.5
+    preds_cutoff = np.array([1 if p>treshold else 0 for p in preds])
+    gts  = np.array(gts)
+    tp = np.sum(gts*preds_cutoff)
+    fp = np.sum((1-gts)*preds_cutoff)
+    fn = np.sum(gts*(1-preds_cutoff))
+    return np.array([tp, fp, fn])
 
-test_score = score
+def test_score(gts, preds, bias = app.get_biases()[label_id], epsilon=1.e-11):
+    predictions = np.array(preds)/0.5*bias
+    preds_cutoff = [1 if p>0.5 else 0 for p in predictions]
+    return app.f2_score(gts, preds_cutoff, average=None)
 
 def build_updates(train_loss, model, learning_rate):
     updates = nn.updates.adam(train_loss, nn.layers.get_all_params(model.l_out, trainable=True), learning_rate)

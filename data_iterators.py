@@ -48,12 +48,13 @@ class DataGenerator(object):
                 for i, idx in enumerate(idxs_batch):
                     img_id = self.img_ids[idx]
                     batch_ids.append(img_id)
-
-                    # print img_id
-                    img = app.read_compressed_image(self.dataset, img_id)
+                    try:
+                        img = app.read_compressed_image(self.dataset, img_id)
+                    except Exception:
+                        print 'cannot open ', img_id
                     x_batch[i] = self.data_prep_fun(x=img)
-                    y_batch[i] = self.label_prep_fun(self.labels[img_id])
-
+                    if 'train' in self.dataset:
+                        y_batch[i] = self.label_prep_fun(self.labels[img_id])
 
                     #print 'i', i, 'img_id', img_id, y_batch[i]
 
@@ -156,25 +157,30 @@ class BalancedDataGenerator(object):
 def _test_data_generator():
         #testing data iterator 
 
-    p_transform = {'patch_size': (128, 128),
+    p_transform = {'patch_size': (256, 256),
                'channels': 4,
                'n_labels': 17}
     rng = np.random.RandomState(42)
 
     def data_prep_fun(x):
-        x = x[:,:128,:128]
+        x = np.array(x)
+        x = np.swapaxes(x,0,2)
         return x
+
+    def label_prep_fun(labels):
+        return labels
 
     folds = app.make_stratified_split(no_folds=5)
     all_ids = folds[0] + folds[1] + folds[2] + folds[3] +folds[4]
     bad_ids = [18772, 28173, 5023]
     img_ids = [x for x in all_ids if x not in bad_ids]
 
-    dg = DataGenerator(dataset='train',
+    dg = DataGenerator(dataset='train-jpg',
                         batch_size=10,
                         img_ids = img_ids,
                         p_transform=p_transform,
                         data_prep_fun = data_prep_fun,
+                        label_prep_fun = label_prep_fun,
                         rng=rng,
                         full_batch=True, random=False, infinite=False)
 
@@ -224,5 +230,5 @@ def _test_balanced_data_generator():
 
 
 if __name__ == "__main__":
-    _test_balanced_data_generator()
+    _test_data_generator()
 

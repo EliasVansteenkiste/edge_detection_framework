@@ -130,8 +130,8 @@ gts_train_print = []
 losses_time_print = []
 
 # use buffering.buffered_gen_threaded()
-for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, buffering.buffered_gen_threaded(
-        train_data_iterator.generate(), buffer_size=128)):
+for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, 
+        train_data_iterator.generate()):
     if chunk_idx in learning_rate_schedule:
         lr = np.float32(learning_rate_schedule[chunk_idx])
         print '  setting learning rate to %.7f' % lr
@@ -153,7 +153,22 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, buff
     for b in xrange(config().nbatches_chunk):
         losses_time_print.append(time.time())
         loss, loss2, pred = iter_train(b)
-        if np.isnan(loss).any():
+        if np.isnan(pred).any():
+            print 'nan in pred'
+            print 'loss', loss
+            print 'loss2', loss2
+            print 'pred', pred 
+            print 'y_chunk_train', y_chunk_train
+            raise 
+        elif np.isnan(loss).any():
+            print 'nan in loss'
+            print 'loss', loss
+            print 'loss2', loss2
+            print 'pred', pred 
+            print 'y_chunk_train', y_chunk_train
+            raise 
+        elif np.isnan(loss2).any():
+            print 'nan in loss2'
             print 'loss', loss
             print 'loss2', loss2
             print 'pred', pred 

@@ -13,6 +13,7 @@ import data_iterators
 import pathfinder
 import utils
 import app
+import nn_planet
 
 restart_from_save = None
 rng = np.random.RandomState(42)
@@ -33,30 +34,21 @@ p_augmentation = {
 }
 
 
-channel_norm_stats = {
-    0.1: [2739., 2022., 1284., 1091.],
-    0.5: [3016., 2272., 1433., 1415.],
-    1: [3149., 2441., 1563.,  1733.],
-    5: [3514., 2867., 1792., 3172.],
-    10: [3661., 3016., 1902., 4132.],
-    50: [4503., 3768., 2534., 6399.],
-    90: [6615., 5912., 4694., 8311.],
-    95: [7623., 6822., 5698., 9109.],
-    99: [11065., 10184., 9047., 11561.],
-    99.5: [14686., 13508., 12197., 12820.],
-    99.9: [23722., 16926., 19183., 16523.]}
 
 # data preparation function
 def data_prep_function_train(x, p_transform=p_transform, p_augmentation=p_augmentation, **kwargs):
+    x = np.array(x)
+    x = np.swapaxes(x,0,2)
+    x = x / 255.
     x = x.astype(np.float32)
-    x = data_transforms.perturb(x, p_augmentation, p_transform['patch_size'], rng)
-    x = data_transforms.channel_norm(x, img_stats = channel_norm_stats, percentiles=[.1,99.9], no_channels=4)
+    x = data_transforms.perturb(x, p_augmentation, p_transform['patch_size'], rng, n_channels=p_transform['channels'])
     return x
 
 def data_prep_function_valid(x, p_transform=p_transform, **kwargs):
-    #take a patch in the middle of the chip
+    x = np.array(x)
+    x = np.swapaxes(x,0,2)
+    x = x / 255.
     x = x.astype(np.float32)
-    x = data_transforms.channel_norm(x, img_stats = channel_norm_stats, percentiles=[.1,99.9], no_channels=4)
     return x
 
 def label_prep_function(label):
@@ -64,7 +56,7 @@ def label_prep_function(label):
 
 
 # data iterators
-batch_size = 16
+batch_size = 32
 nbatches_chunk = 1
 chunk_size = batch_size * nbatches_chunk
 
@@ -74,7 +66,7 @@ train_ids = folds[0] + folds[1] + folds[2] + folds[3]
 valid_ids = folds[4]
 all_ids = folds[0] + folds[1] + folds[2] + folds[3] + folds[4]
 
-bad_ids = [18772, 28173, 5023]
+bad_ids = []
 
 train_ids = [x for x in train_ids if x not in bad_ids]
 valid_ids = [x for x in valid_ids if x not in bad_ids]
@@ -83,7 +75,7 @@ test_ids = np.arange(40669)
 test2_ids = np.arange(20522)
 
 
-train_data_iterator = data_iterators.DataGenerator(dataset='train',
+train_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     batch_size=chunk_size,
                                                     img_ids = train_ids,
                                                     p_transform=p_transform,
@@ -92,7 +84,7 @@ train_data_iterator = data_iterators.DataGenerator(dataset='train',
                                                     rng=rng,
                                                     full_batch=True, random=True, infinite=True)
 
-feat_data_iterator = data_iterators.DataGenerator(dataset='train',
+feat_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     batch_size=chunk_size,
                                                     img_ids = all_ids,
                                                     p_transform=p_transform,
@@ -101,7 +93,7 @@ feat_data_iterator = data_iterators.DataGenerator(dataset='train',
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 
-valid_data_iterator = data_iterators.DataGenerator(dataset='train',
+valid_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     batch_size=chunk_size,
                                                     img_ids = valid_ids,
                                                     p_transform=p_transform,
@@ -110,7 +102,7 @@ valid_data_iterator = data_iterators.DataGenerator(dataset='train',
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 
-test_data_iterator = data_iterators.DataGenerator(dataset='test',
+test_data_iterator = data_iterators.DataGenerator(dataset='test-jpg',
                                                     batch_size=chunk_size,
                                                     img_ids = test_ids,
                                                     p_transform=p_transform,
@@ -119,7 +111,7 @@ test_data_iterator = data_iterators.DataGenerator(dataset='test',
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 
-test2_data_iterator = data_iterators.DataGenerator(dataset='test2',
+test2_data_iterator = data_iterators.DataGenerator(dataset='test2-jpg',
                                                     batch_size=chunk_size,
                                                     img_ids = test2_ids,
                                                     p_transform=p_transform,
@@ -148,6 +140,13 @@ learning_rate_schedule = {
 conv = partial(dnn.Conv2DDNNLayer,
                  filter_size=3,
                  pad='same',
+                 W=nn.init.HeNormal('relu'),
+                 nonlinearity=nn.nonlinearities.very_leaky_rectify)
+
+bn = lasagne.layers.BatchNormLayer
+
+conv1 = partial(dnn.Conv2DDNNLayer,
+                 filter_size=1,
                  W=nn.init.Orthogonal(),
                  nonlinearity=nn.nonlinearities.very_leaky_rectify)
 
@@ -160,27 +159,82 @@ dense = partial(lasagne.layers.DenseLayer,
                 W=lasagne.init.Orthogonal(),
                 nonlinearity=lasagne.nonlinearities.very_leaky_rectify)
 
+up = partial(lasagne.layers.Upscale2DLayer,
+                scale_factor=2)
 
-def inrn_v2(lin):
-    n_base_filter = 32
+concat = lasagne.layers.ConcatLayer
 
-    l1 = conv(lin, n_base_filter, filter_size=1)
 
-    l2 = conv(lin, n_base_filter, filter_size=1)
-    l2 = conv(l2, n_base_filter, filter_size=3)
+spatial_mp = partial(lasagne.layers.dnn.SpatialPyramidPoolingDNNLayer,
+                pool_dims=[1],
+                mode='max')
 
-    l3 = conv(lin, n_base_filter, filter_size=1)
-    l3 = conv(l3, n_base_filter, filter_size=3)
-    l3 = conv(l3, n_base_filter, filter_size=3)
+spatial_ap = partial(lasagne.layers.dnn.SpatialPyramidPoolingDNNLayer,
+                pool_dims=[1],
+                mode='average')
 
-    l = lasagne.layers.ConcatLayer([l1, l2, l3])
+#----- helper functions --------
 
-    l = conv(l, lin.output_shape[1], filter_size=1)
+def make_linear_bn_prelu(l_in, filter_size=3, stride=1, pad='same', groups=1):
+    l = dnn.Conv2DDNNLayer(l_in, n_filters,
+                 filter_size=filter_size,
+                 pad='same',
+                 stride = stride,
+                 W=nn.init.HeNormal('relu'),
+                 nonlinearity=None)
+    #TODO bias should be disabled, but how?
+    #TODO groups arg?
+    l = bn(l)
+    l = lasagne.layers.prelu(l)
+    return l
 
-    l = lasagne.layers.ElemwiseSumLayer([l, lin])
 
+def make_conv_bn_relu(l_in, n_filters, filter_size=3, stride=1, pad='same', groups=1):
+    l = dnn.Conv2DDNNLayer(l_in, n_filters,
+                 filter_size=filter_size,
+                 pad='same',
+                 stride = stride,
+                 W=nn.init.HeNormal('relu'),
+                 nonlinearity=None)
+    #TODO bias should be disabled, but how?
+    #TODO groups arg?
+    l = bn(l)
     l = lasagne.layers.NonlinearityLayer(l, nonlinearity=lasagne.nonlinearities.rectify)
+    return l
 
+
+def make_dense_bn_relu(l_in, num_units):
+    l_weather = nn.layers.DenseLayer(l_in, num_units=num_units,
+                             W=nn.init.Orthogonal(),
+                             b=nn.init.Constant(0.5),
+                             nonlinearity=nn.nonlinearities.identity)
+    l = bn(l)
+    l = lasagne.layers.NonlinearityLayer(l, nonlinearity=lasagne.nonlinearities.rectify)
+    return l
+
+
+def make_max_flat(l_in):
+    l = spatial_mp(lin) 
+    return l
+
+
+def make_avg_flat(l_in):
+    l = spatial_ap(lin) 
+    return l
+
+
+def make_shortcut(out, modifier):
+    if modifier is None:
+        return out
+    else:
+        return modifier(out)
+
+def make_flat(lin):
+    #flat =  F.adaptive_avg_pool2d(out,output_size=4)
+    l  = lasagne.layers.dnn.Pool2DDNNLayer(lin,pool_size=4, stride=2, padding=0)
+    l  = adaptive_mp(l,output_size=1)
+    print l.output_shape
+    #todo needs to be flattened
     return l
 
 
@@ -216,47 +270,65 @@ def feat_red(lin):
     l = conv(lin, ins // 2, filter_size=1)
     return l
 
+def LME(t_in, r=1.0, **kwargs):
+    return T.log(T.mean(T.exp(r * t_in), **kwargs) + 1e-7) / r
+
 
 def build_model(l_in=None):
     l_in = nn.layers.InputLayer((None, p_transform['channels'],) + p_transform['patch_size']) if l_in is None else l_in
     l_target = nn.layers.InputLayer((None,p_transform['n_labels']))
 
-    l = conv(l_in, 64)
+    c1 = conv(l_in, 32)
+    l = max_pool(c1)
 
-    l = inrn_v2_red(l)
-    l = inrn_v2(l)
+    c2 = conv(l, 32)
+    l = max_pool(c2)
+    l = drop(l, 0.5)
 
-    l = inrn_v2_red(l)
-    l = inrn_v2(l)
+    c3 = conv(l, 64)
+    l = max_pool(c3)
+    l = drop(l, 0.5)
 
-    l = inrn_v2_red(l)
-    l = inrn_v2(l)
+    c4 = conv(l, 64)
+    l = max_pool(c4)
+    l = drop(l, 0.5)
 
-    l = inrn_v2_red(l)
-    l = inrn_v2(l)
+    c5 = conv(l, 128)
+    c6 = conv(c5, 128)
+    c7 = conv(c6, 128)
 
-    l = inrn_v2_red(l)
-    l = inrn_v2(l)
+    dc7 = drop(c7, 0.5)
 
-    l = drop(l)
+    up1 = up(dc7)
+    conc1 = concat([up1, c4])
+    c8 = conv(conc1, 64)
+
+    up2 = up(c8)
+    conc2 = concat([up2, c3])
+    c9 = conv(conc2, 64)
+
+    up3 = up(c9)
+    conc3 = concat([up3, c2])
+    c10 = conv(conc3, 32) 
+
+    up4 = up(c10)
+    conc4 = concat([up4, c1])
+    c10 = conv(conc4, 32)     
+    dc10 = drop(c10)
+
+    l_seg_maps = conv1(dc10, 13, nonlinearity=nn.nonlinearities.sigmoid)
+    l_other = nn.layers.GlobalPoolLayer(l_seg_maps, pool_function=LME)
+
     l_feat = nn.layers.GlobalPoolLayer(l)
-
-
-    l = nn.layers.DenseLayer(l_feat, num_units=p_transform['n_labels'],
+    l_weather = nn.layers.DenseLayer(l_feat, num_units=4,
                                  W=nn.init.Orthogonal(),
                                  b=nn.init.Constant(0.5),
-                                 nonlinearity=nn.nonlinearities.identity)
-
-
-    l_weather = nn.layers.SliceLayer(l, indices=slice(0,4), axis=-1)
-    l_weather = nn.layers.NonlinearityLayer(l_weather, nonlinearity=nn.nonlinearities.softmax)
-
-    l_other = nn.layers.SliceLayer(l, indices=slice(4,None), axis=-1)
-    l_other = nn.layers.NonlinearityLayer(l_other, nonlinearity=nn.nonlinearities.sigmoid)
+                                 nonlinearity=nn.nonlinearities.softmax)
+ 
 
     l_out = nn.layers.ConcatLayer([l_weather, l_other], axis=-1)
 
-    return namedtuple('Model', ['l_in', 'l_out', 'l_target', 'l_feat'])(l_in, l_out, l_target, l_feat)
+    return namedtuple('Model', ['l_in', 'l_out', 'l_target', 'l_feat', 'l_seg_maps'])(l_in, l_out, l_target, l_feat, l_seg_maps)
 
 
 def build_objective(model, deterministic=False, epsilon=1.e-7):

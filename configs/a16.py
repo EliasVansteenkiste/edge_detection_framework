@@ -74,7 +74,7 @@ train_ids = folds[0] + folds[1] + folds[2] + folds[3]
 valid_ids = folds[4]
 all_ids = folds[0] + folds[1] + folds[2] + folds[3] + folds[4]
 
-bad_ids = [18772, 28173, 5023]
+bad_ids = []
 
 train_ids = [x for x in train_ids if x not in bad_ids]
 valid_ids = [x for x in valid_ids if x not in bad_ids]

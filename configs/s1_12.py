@@ -7,6 +7,7 @@ from functools import partial
 import lasagne.layers.dnn as dnn
 import lasagne
 import theano.tensor as T
+from scipy.special import logit, expit
 
 import data_transforms
 import data_iterators
@@ -137,7 +138,7 @@ dense = partial(lasagne.layers.DenseLayer,
                 nonlinearity=lasagne.nonlinearities.very_leaky_rectify)
 
 
-def inrn_v2(lin):
+def inrn_v2(lin, last_layer_nonlin = lasagne.nonlinearities.rectify):
     n_base_filter = 32
 
     l1 = conv(lin, n_base_filter, filter_size=1)
@@ -155,7 +156,7 @@ def inrn_v2(lin):
 
     l = lasagne.layers.ElemwiseSumLayer([l, lin])
 
-    l = lasagne.layers.NonlinearityLayer(l, nonlinearity=lasagne.nonlinearities.rectify)
+    l = lasagne.layers.NonlinearityLayer(l, nonlinearity=last_layer_nonlin)
 
     return l
 
@@ -192,6 +193,9 @@ def feat_red(lin):
     l = conv(lin, ins // 2, filter_size=1)
     return l
 
+def LME(x, axis=None, dtype=None, keepdims=False, acc_dtype=None):
+    return T.log(T.mean(T.exp(x), axis, dtype, keepdims, acc_dtype))
+
 
 def build_model(l_in=None):
     l_in = nn.layers.InputLayer((None, p_transform['channels'],) + p_transform['patch_size']) if l_in is None else l_in
@@ -209,13 +213,10 @@ def build_model(l_in=None):
     l = inrn_v2(l)
 
     l = inrn_v2_red(l)
-    l = inrn_v2(l)
-
-    l = inrn_v2_red(l)
-    l = inrn_v2(l)
+    l = inrn_v2(l, last_layer_nonlin = lasagne.nonlinearities.sigmoid)
 
     l = drop(l)
-    l = nn.layers.GlobalPoolLayer(l)
+    l = nn.layers.GlobalPoolLayer(l, pool_function=LME)
 
 
     l_out = nn.layers.DenseLayer(l, num_units=1,
@@ -242,11 +243,17 @@ def build_objective(model, deterministic=False, epsilon=1.e-7):
     return T.mean(weighted_bce) + weight_decay * reg 
 
 
+def tlogit(x):
+    return T.log(x/(np.float32(1)-x))
+
+def texpit(x):
+    return np.float32(1)/(np.float32(1)+T.exp(-x))
+
 def build_objective2(model, deterministic=False, bias = app.get_biases()[label_id], epsilon=1.e-7):
     predictions = T.flatten(nn.layers.get_output(model.l_out, deterministic=deterministic))
     targets = T.flatten(nn.layers.get_output(model.l_target))
-    preds = predictions*np.float32(0.5/bias)
-    preds = T.clip(preds, epsilon, 1.-epsilon)
+    preds = T.clip(predictions, epsilon, 1.-epsilon)
+    preds = texpit(tlogit(preds)-tlogit(np.float32(0.5))+tlogit(np.float32(bias)))
     #logs = [-T.log(preds), -T.log(1-preds)]
     weighted_bce = - 5 * targets * T.log(preds) - (1-targets)*T.log(1-preds)    
     reg = nn.regularization.l2(predictions)                                                                                                                                                                                       
@@ -256,8 +263,9 @@ def build_objective2(model, deterministic=False, bias = app.get_biases()[label_i
 def build_test_objective(model, deterministic=False, bias = app.get_biases()[label_id],  epsilon=1.e-7):
     predictions = T.flatten(nn.layers.get_output(model.l_out, deterministic=deterministic))
     targets = T.flatten(nn.layers.get_output(model.l_target))
-    preds = predictions*np.float32(0.5/bias)
-    preds = T.clip(preds, epsilon, 1.-epsilon)
+    preds = T.clip(predictions, epsilon, 1.-epsilon)
+    preds = texpit(tlogit(preds)-tlogit(0.5)+tlogit(bias))
+
     return T.mean(nn.objectives.binary_crossentropy(preds, targets))
 
 def score(gts, preds):
@@ -270,7 +278,7 @@ def score(gts, preds):
     return np.array([tp, fp, fn])
 
 def test_score(gts, preds, bias = app.get_biases()[label_id], epsilon=1.e-11):
-    predictions = np.array(preds)/0.5*bias
+    predictions = expit(logit(preds)-logit(0.5)+logit(bias))
     preds_cutoff = [1 if p>0.5 else 0 for p in predictions]
     return app.f2_score(gts, preds_cutoff, average=None)
 
