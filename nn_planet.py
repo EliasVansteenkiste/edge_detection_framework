@@ -331,9 +331,10 @@ def part_softmax(x,a):
     T.exp(-x)
 
 class MajorExclusivityLayer(nn.layers.Layer):
-    def __init__(self, incoming, idx_major,
+    def __init__(self, incoming, idx_major, apply_nl=True,
                  **kwargs):
         super(MajorExclusivityLayer, self).__init__(incoming, **kwargs)
+        self.apply_nl = apply_nl
         self.idx_major = idx_major
 
     def get_output_shape_for(self, input_shape):
