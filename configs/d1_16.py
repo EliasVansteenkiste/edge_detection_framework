@@ -1,0 +1,313 @@
+
+#config a6 is equivalent to a5, except the normalization
+import numpy as np
+import lasagne as nn
+from collections import namedtuple
+from functools import partial
+import lasagne.layers.dnn as dnn
+import lasagne
+import theano.tensor as T
+
+import data_transforms
+import data_iterators
+import pathfinder
+import utils
+import app
+import nn_planet
+
+restart_from_save = None
+rng = np.random.RandomState(42)
+
+# transformations
+p_transform = {'patch_size': (256, 256),
+               'channels': 4,
+               'n_labels': 17,
+               'n_feat': 64,
+               'label_id': 16}
+
+
+#only lossless augmentations
+p_augmentation = {
+    'rot90_values': [0,1,2,3],
+    'flip': [0, 1]
+}
+
+
+
+# data preparation function
+def data_prep_function_train(x, p_transform=p_transform, p_augmentation=p_augmentation, **kwargs):
+    x = np.array(x)
+    x = np.swapaxes(x,0,2)
+    x = x / 255.
+    x = x.astype(np.float32)
+    x = data_transforms.lossless(x, p_augmentation, rng)
+    return x
+
+def data_prep_function_valid(x, p_transform=p_transform, **kwargs):
+    x = np.array(x)
+    x = np.swapaxes(x,0,2)
+    x = x / 255.
+    x = x.astype(np.float32)
+    return x
+
+def label_prep_function(label):
+    return label
+
+def label_prep_function_valid(label):
+    return label[p_transform['label_id']]
+
+
+# data iterators
+# 0.18308259
+batch_size = 32
+pos_batch_size = 6
+neg_batch_size = 26
+assert batch_size == (pos_batch_size+neg_batch_size)
+nbatches_chunk = 1
+chunk_size = batch_size * nbatches_chunk
+
+folds = app.make_stratified_split(no_folds=5)
+print len(folds)
+train_ids = folds[0] + folds[1] + folds[2] + folds[3]
+valid_ids = folds[4]
+all_ids = folds[0] + folds[1] + folds[2] + folds[3] + folds[4]
+
+bad_ids = []
+
+train_ids = [x for x in train_ids if x not in bad_ids]
+valid_ids = [x for x in valid_ids if x not in bad_ids]
+
+test_ids = np.arange(40669)
+test2_ids = np.arange(20522)
+
+
+train_data_iterator = data_iterators.DiscriminatorDataGenerator(dataset='train-jpg',
+                                                    batch_size=batch_size,
+                                                    pos_batch_size=pos_batch_size,
+                                                    label_id = p_transform['label_id'],
+                                                    img_ids = train_ids,
+                                                    p_transform=p_transform,
+                                                    data_prep_fun = data_prep_function_train,
+                                                    label_prep_fun = label_prep_function,
+                                                    rng=rng,
+                                                    full_batch=True, random=True, infinite=True)
+
+feat_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
+                                                    batch_size=batch_size,
+                                                    pos_batch_size=pos_batch_size,
+                                                    img_ids = train_ids,
+                                                    p_transform=p_transform,
+                                                    data_prep_fun = data_prep_function_train,
+                                                    label_prep_fun = label_prep_function_valid,
+                                                    rng=rng,
+                                                    full_batch=False, random=False, infinite=False)
+
+valid_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
+                                                    batch_size=batch_size,
+                                                    pos_batch_size=pos_batch_size,
+                                                    img_ids = valid_ids,
+                                                    p_transform=p_transform,
+                                                    data_prep_fun = data_prep_function_train,
+                                                    label_prep_fun = label_prep_function_valid,
+                                                    rng=rng,
+                                                    full_batch=False, random=False, infinite=False)
+
+test_data_iterator = data_iterators.DataGenerator(dataset='test-jpg',
+                                                    batch_size=batch_size,
+                                                    pos_batch_size=pos_batch_size,
+                                                    img_ids = test_ids,
+                                                    p_transform=p_transform,
+                                                    data_prep_fun = data_prep_function_valid,
+                                                    label_prep_fun = label_prep_function_valid,
+                                                    rng=rng,
+                                                    full_batch=False, random=False, infinite=False)
+
+test2_data_iterator = data_iterators.DataGenerator(dataset='test2-jpg',
+                                                    batch_size=batch_size,
+                                                    pos_batch_size=pos_batch_size,
+                                                    img_ids = test2_ids,
+                                                    p_transform=p_transform,
+                                                    data_prep_fun = data_prep_function_valid,
+                                                    label_prep_fun = label_prep_function_valid,
+                                                    rng=rng,
+                                                    full_batch=False, random=False, infinite=False)
+
+nchunks_per_epoch = train_data_iterator.nsamples / chunk_size
+max_nchunks = nchunks_per_epoch * 40
+
+
+validate_every = int(0.1 * nchunks_per_epoch)
+save_every = int(1. * nchunks_per_epoch)
+
+learning_rate_schedule = {
+    0: 5e-4,
+    int(max_nchunks * 0.4): 2e-4,
+    int(max_nchunks * 0.6): 1e-4,
+    int(max_nchunks * 0.7): 5e-5,
+    int(max_nchunks * 0.8): 2e-5,
+    int(max_nchunks * 0.9): 1e-5
+}
+
+# model
+conv = partial(dnn.Conv2DDNNLayer,
+                 filter_size=3,
+                 pad='same',
+                 W=nn.init.Orthogonal(),
+                 nonlinearity=nn.nonlinearities.very_leaky_rectify)
+
+max_pool = partial(dnn.MaxPool2DDNNLayer,
+                     pool_size=2)
+
+drop = lasagne.layers.DropoutLayer
+
+dense = partial(lasagne.layers.DenseLayer,
+                W=lasagne.init.Orthogonal(),
+                nonlinearity=lasagne.nonlinearities.very_leaky_rectify)
+
+
+def inrn_v2(lin, last_layer_nonlin = lasagne.nonlinearities.rectify):
+    n_base_filter = 32
+
+    l1 = conv(lin, n_base_filter, filter_size=1)
+
+    l2 = conv(lin, n_base_filter, filter_size=1)
+    l2 = conv(l2, n_base_filter, filter_size=3)
+
+    l3 = conv(lin, n_base_filter, filter_size=1)
+    l3 = conv(l3, n_base_filter, filter_size=3)
+    l3 = conv(l3, n_base_filter, filter_size=3)
+
+    l = lasagne.layers.ConcatLayer([l1, l2, l3])
+
+    l = conv(l, lin.output_shape[1], filter_size=1)
+
+    l = lasagne.layers.ElemwiseSumLayer([l, lin])
+
+    l = lasagne.layers.NonlinearityLayer(l, nonlinearity= last_layer_nonlin)
+
+    return l
+
+
+def inrn_v2_red(lin):
+    # We want to reduce our total volume /4
+
+    den = 16
+    nom2 = 4
+    nom3 = 5
+    nom4 = 7
+
+    ins = lin.output_shape[1]
+
+    l1 = max_pool(lin)
+
+    l2 = conv(lin, ins // den * nom2, filter_size=3, stride=2)
+
+    l3 = conv(lin, ins // den * nom2, filter_size=1)
+    l3 = conv(l3, ins // den * nom3, filter_size=3, stride=2)
+
+    l4 = conv(lin, ins // den * nom2, filter_size=1)
+    l4 = conv(l4, ins // den * nom3, filter_size=3)
+    l4 = conv(l4, ins // den * nom4, filter_size=3, stride=2)
+
+    l = lasagne.layers.ConcatLayer([l1, l2, l3, l4])
+
+    return l
+
+
+def feat_red(lin):
+    # We want to reduce the feature maps by a factor of 2
+    ins = lin.output_shape[1]
+    l = conv(lin, ins // 2, filter_size=1)
+    return l
+
+
+def build_model():
+    l_in = nn.layers.InputLayer((None, p_transform['channels'],) + p_transform['patch_size']) 
+    l_target = nn.layers.InputLayer((None,p_transform['n_labels']))
+
+    l = conv(l_in, 64)
+
+    l = inrn_v2_red(l)
+    l = inrn_v2(l)
+
+    l = inrn_v2_red(l)
+    l = inrn_v2(l)
+
+    l = inrn_v2_red(l)
+    l = inrn_v2(l)
+
+    l = inrn_v2_red(l)
+    l = inrn_v2(l)
+
+    l = inrn_v2_red(l)
+    l = inrn_v2(l)
+
+    l = drop(l)
+    l_neck = nn.layers.GlobalPoolLayer(l)
+
+    l_out = nn.layers.DenseLayer(l_neck, num_units=p_transform['n_feat'],
+                                 W=nn.init.Orthogonal(),
+                                 nonlinearity=nn.nonlinearities.identity)
+
+
+    return namedtuple('Model', ['l_in', 'l_out', 'l_neck', 'l_target'])(l_in, l_out, l_neck, l_target)
+
+
+def build_objective(model, deterministic=False, epsilon=1.e-7):
+    features= nn.layers.get_output(model.l_out, deterministic=deterministic)
+    targets = T.cast(T.flatten(nn.layers.get_output(model.l_target)), 'int32')
+    feat = T.nnet.nnet.sigmoid(features)
+    df = T.mean(abs(feat.dimshuffle(['x',0,1]) - feat.dimshuffle([0,'x',1])), axis=2)
+    df_pp = df[targets,targets]
+    df_pn = df[targets,(1-targets)]
+    n_pos = T.cast(T.sum(targets), 'float32')
+    n_neg = T.cast(T.sum(1-targets), 'float32')
+    logloss = 5*T.sum(T.log(1-df_pp))/(n_pos**np.float32(2)-n_pos) + T.sum(T.log(df_pn))/n_neg**np.float32(2)
+    return logloss 
+
+def build_objective2(model, deterministic=False, epsilon=1.e-7):
+    features= nn.layers.get_output(model.l_out, deterministic=deterministic)
+    targets = T.cast(T.flatten(nn.layers.get_output(model.l_target)), 'int32')
+    feat = T.nnet.nnet.sigmoid(features)
+    df = T.mean(abs(feat.dimshuffle(['x',0,1]) - feat.dimshuffle([0,'x',1])), axis=2)
+    df_pp = df[targets,targets]
+    df_pn = df[targets,(1-targets)]
+    n_pos = T.cast(T.sum(targets), 'float32')
+    n_neg = T.cast(T.sum(1-targets), 'float32')
+    logloss = T.sum(T.log(1-df_pp))/(n_pos**2-n_pos) + T.sum(T.log(df_pn))/n_neg**2
+    return logloss 
+
+def sigmoid(x):
+    s = 1. / (1. + np.exp(-x))
+    return s
+
+
+def score(gts, feats):
+
+    feats = np.vstack(feats)
+    gts = np.vstack(gts)
+    gt = np.int32(gts[:,p_transform['label_id']])
+    feats = sigmoid(feats)
+    df = np.mean(np.abs(feats[None,:,:] - feats[:,None,:]), axis=2)
+    print df.shape 
+    gt  = gt > 0.5
+    non_gt = gt < 0.5
+    df_pp = df[gt, gt]
+    df_np = df[non_gt, gt]
+    print df_pp.shape, df_np.shape
+    preds_p = 1-np.mean(df_pp,axis=1)
+    preds_n = 1-np.mean(df_np,axis=1)
+    treshold = 0.5
+    tp = np.sum(preds_p>treshold)
+    fp = np.sum(preds_n>treshold)
+    fn = np.sum(preds_p<treshold)
+
+    return np.array([tp, fp, fn])
+
+
+test_score = score
+
+
+def build_updates(train_loss, model, learning_rate):
+    updates = nn.updates.adam(train_loss, nn.layers.get_all_params(model.l_out, trainable=True), learning_rate)
+    return updates
