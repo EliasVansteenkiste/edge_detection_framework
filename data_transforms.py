@@ -65,6 +65,14 @@ no_augmentation_params = {
     'allow_stretch': False,
 }
 
+def lossless(x, p_aug, rng):
+    rot90_value = rng.choice(p_aug['rot90_values'])
+    if rot90_value:
+        x = np.rot90(x, k=rot90_value, axes=(1, 2))
+    flip = rng.choice(p_aug['flip'])
+    if flip:
+        x = np.flip(x, 1)
+    return x
 
 def tiling(img, tile_shape):
     tiles = []
@@ -81,6 +89,18 @@ def _test_tiling():
     tiles = tiling(tif,(4,128,128))
     for tile in tiles:
         print tile.shape  
+
+def random_crop(x, w, h, rng):
+    o_w = x.shape[1]
+    o_h = x.shape[2]
+    w_range = o_w - w
+    h_range = o_h - h
+    w_offset = rng.choice(np.arange(w_range))
+    h_offset = rng.choice(np.arange(h_range))
+    return x[:,w_offset:w_offset+w,h_offset:h_offset+h]
+
+
+
 
 
 def build_center_uncenter_transforms(image_shape):
@@ -146,6 +166,13 @@ def build_augmentation_transform(zoom=(1.0, 1.0), rotation=0, shear=0, translati
 
     tform_augment = skimage.transform.AffineTransform(scale=(1/zoom[0], 1/zoom[1]), rotation=np.deg2rad(rotation), shear=np.deg2rad(shear), translation=translation)
     return tform_augment
+
+def PCA_augmentation(batch, l, V):
+  for i in xrange(batch.shape[0]):
+       alpha = np.random.randn(3) * 0.1
+       noise = np.dot(V, alpha * l)
+       batch[i, :, :, :] = batch[i, :, :, :] + noise[:, np.newaxis, np.newaxis]
+  return batch
 
 def perturb(img, augmentation_params, target_shape, rng=rng, n_channels=4):
     # # DEBUG: draw a border to see where the image ends up
