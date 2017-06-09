@@ -172,14 +172,15 @@ if valid:
     fns = [np.sum((1-qpreds[:,i])*targs[:,i]) for i in range(17)]
 
     print 'TP'
-    print tps
+    print np.int32(tps)
     print 'FP'
-    print fps
+    print np.int32(fps)
     print 'FN'
-    print fns
+    print np.int32(fns)
 
     print 'worst classes'
-    print 4*np.array(fps)+np.array(fns)/1000
+    print app.get_headers()
+    print 4*np.array(fps)+np.array(fns)
 
 if test:
     imgid2pred = {}
