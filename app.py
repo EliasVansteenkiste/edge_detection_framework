@@ -255,6 +255,15 @@ def apply_argmax_threshold(prediction):
     output[4:] = prediction[4:]>0.5
     return output
 
+def calculate_relative_occurences():
+    a_labels = get_labels_array()
+    print a_labels.shape
+    abs_occ = np.sum(a_labels,axis=0)
+    print abs_occ
+    rel_occ = 1.*abs_occ/a_labels.shape[0]
+    print rel_occ
+    print get_headers()
+
 
 def logloss(predictions, targets, epsilon=1.e-7, skewing_factor = 1.):
     preds = np.clip(predictions, epsilon, 1.-epsilon)
@@ -263,17 +272,18 @@ def logloss(predictions, targets, epsilon=1.e-7, skewing_factor = 1.):
 
 
 if __name__ == "__main__":
-    maxs = []
-    mins = []
-    shapes = set()
-    for idx in range(40476):
-        if idx%1000 == 0:
-            print idx, '/', '40476'
-        im = read_compressed_image('train-jpg', idx)
-        imarray = np.array(im)
-        shapes.add(imarray.shape)
-        maxs.append(np.amax(im))
-        mins.append(np.amin(im))
-    print np.amax(np.array(maxs))
-    print np.amin(np.array(mins))
-    print shapes
+    # maxs = []
+    # mins = []
+    # shapes = set()
+    # for idx in range(40476):
+    #     if idx%1000 == 0:
+    #         print idx, '/', '40476'
+    #     im = read_compressed_image('train-jpg', idx)
+    #     imarray = np.array(im)
+    #     shapes.add(imarray.shape)
+    #     maxs.append(np.amax(im))
+    #     mins.append(np.amin(im))
+    # print np.amax(np.array(maxs))
+    # print np.amin(np.array(mins))
+    # print shapes
+    calculate_relative_occurences()

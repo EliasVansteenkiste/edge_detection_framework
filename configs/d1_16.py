@@ -258,11 +258,17 @@ def build_objective(model, deterministic=False, epsilon=1.e-7):
     targets = T.cast(T.flatten(nn.layers.get_output(model.l_target)), 'int32')
     feat = T.nnet.nnet.sigmoid(features)
     df = T.mean(abs(feat.dimshuffle(['x',0,1]) - feat.dimshuffle([0,'x',1])), axis=2)
-    df_pp = df[targets,targets]
-    df_pn = df[targets,(1-targets)]
+    b_targets = (targets > 0.5).nonzero()
+    b_no_targets = (targets < 0.5).nonzero()
+    df_pp = df[b_targets]
+    df_pp = df_pp[:,b_targets]
+
+    df_pn = df[b_targets]
+    df_pn = df[:,b_no_targets]
+
     n_pos = T.cast(T.sum(targets), 'float32')
     n_neg = T.cast(T.sum(1-targets), 'float32')
-    logloss = 5*T.sum(T.log(1-df_pp))/(n_pos**np.float32(2)-n_pos) + T.sum(T.log(df_pn))/n_neg**np.float32(2)
+    logloss = -5*T.sum(T.log(1-df_pp))/(n_pos**np.float32(2)-n_pos) - T.sum(T.log(df_pn))/n_neg**np.float32(2)
     return logloss 
 
 def build_objective2(model, deterministic=False, epsilon=1.e-7):
@@ -270,11 +276,15 @@ def build_objective2(model, deterministic=False, epsilon=1.e-7):
     targets = T.cast(T.flatten(nn.layers.get_output(model.l_target)), 'int32')
     feat = T.nnet.nnet.sigmoid(features)
     df = T.mean(abs(feat.dimshuffle(['x',0,1]) - feat.dimshuffle([0,'x',1])), axis=2)
-    df_pp = df[targets,targets]
-    df_pn = df[targets,(1-targets)]
+    b_targets = (targets > 0.5).nonzero()
+    b_no_targets = (targets < 0.5).nonzero()
+    df_pp = df[b_targets]
+    df_pp = df_pp[:,b_targets]
+    df_pn = df[b_targets]
+    df_pn = df_pn[:,b_no_targets]
     n_pos = T.cast(T.sum(targets), 'float32')
     n_neg = T.cast(T.sum(1-targets), 'float32')
-    logloss = T.sum(T.log(1-df_pp))/(n_pos**2-n_pos) + T.sum(T.log(df_pn))/n_neg**2
+    logloss = - T.sum(T.log(1-df_pp))/(n_pos**np.float32(2)-n_pos) - T.sum(T.log(df_pn))/n_neg**np.float32(2)
     return logloss 
 
 def sigmoid(x):
@@ -288,13 +298,13 @@ def score(gts, feats):
     gts = np.vstack(gts)
     gt = np.int32(gts[:,p_transform['label_id']])
     feats = sigmoid(feats)
-    df = np.mean(np.abs(feats[None,:,:] - feats[:,None,:]), axis=2)
-    print df.shape 
+    df = np.mean(np.abs(feats[None,:,:] - feats[:,None,:]), axis=2) 
     gt  = gt > 0.5
     non_gt = gt < 0.5
-    df_pp = df[gt, gt]
-    df_np = df[non_gt, gt]
-    print df_pp.shape, df_np.shape
+    df_pp = df[gt]
+    df_pp = df_pp[:,gt]
+    df_np = df[non_gt, :]
+    df_np = df_np[:, gt]
     preds_p = 1-np.mean(df_pp,axis=1)
     preds_n = 1-np.mean(df_np,axis=1)
     treshold = 0.5
