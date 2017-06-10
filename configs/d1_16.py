@@ -21,7 +21,7 @@ rng = np.random.RandomState(42)
 # transformations
 p_transform = {'patch_size': (256, 256),
                'channels': 4,
-               'n_labels': 17,
+               'n_labels': 1,
                'n_feat': 64,
                'label_id': 16}
 
@@ -51,9 +51,6 @@ def data_prep_function_valid(x, p_transform=p_transform, **kwargs):
     return x
 
 def label_prep_function(label):
-    return label
-
-def label_prep_function_valid(label):
     return label[p_transform['label_id']]
 
 
@@ -98,7 +95,7 @@ feat_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     img_ids = train_ids,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_train,
-                                                    label_prep_fun = label_prep_function_valid,
+                                                    label_prep_fun = label_prep_function,
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 
@@ -108,7 +105,7 @@ valid_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     img_ids = valid_ids,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_train,
-                                                    label_prep_fun = label_prep_function_valid,
+                                                    label_prep_fun = label_prep_function,
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 
@@ -118,7 +115,7 @@ test_data_iterator = data_iterators.DataGenerator(dataset='test-jpg',
                                                     img_ids = test_ids,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_valid,
-                                                    label_prep_fun = label_prep_function_valid,
+                                                    label_prep_fun = label_prep_function,
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 
@@ -128,7 +125,7 @@ test2_data_iterator = data_iterators.DataGenerator(dataset='test2-jpg',
                                                     img_ids = test2_ids,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_valid,
-                                                    label_prep_fun = label_prep_function_valid,
+                                                    label_prep_fun = label_prep_function,
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 
@@ -223,7 +220,7 @@ def feat_red(lin):
 
 def build_model():
     l_in = nn.layers.InputLayer((None, p_transform['channels'],) + p_transform['patch_size']) 
-    l_target = nn.layers.InputLayer((None,p_transform['n_labels']))
+    l_target = nn.layers.InputLayer((None,))
 
     l = conv(l_in, 64)
 
@@ -268,8 +265,15 @@ def build_objective(model, deterministic=False, epsilon=1.e-7):
 
     n_pos = T.cast(T.sum(targets), 'float32')
     n_neg = T.cast(T.sum(1-targets), 'float32')
-    logloss = -5*T.sum(T.log(1-df_pp))/(n_pos**np.float32(2)-n_pos) - T.sum(T.log(df_pn))/n_neg**np.float32(2)
-    return logloss 
+
+    avg_dist_pp = T.sum(df_pp)/(n_pos**2-n_pos)
+    avg_dist_pn = T.sum(df_pn)/(n_neg**2-n_neg)
+
+    avg_dist_pp = T.clip(avg_dist_pp,epsilon,1.-epsilon)
+    avg_dist_pn = T.clip(avg_dist_pn,epsilon,1.-epsilon)
+
+    logloss = -5*T.log(1-avg_dist_pp) - T.log(avg_dist_pn)
+    return logloss
 
 def build_objective2(model, deterministic=False, epsilon=1.e-7):
     features= nn.layers.get_output(model.l_out, deterministic=deterministic)
@@ -280,11 +284,20 @@ def build_objective2(model, deterministic=False, epsilon=1.e-7):
     b_no_targets = (targets < 0.5).nonzero()
     df_pp = df[b_targets]
     df_pp = df_pp[:,b_targets]
+
     df_pn = df[b_targets]
-    df_pn = df_pn[:,b_no_targets]
+    df_pn = df[:,b_no_targets]
+
     n_pos = T.cast(T.sum(targets), 'float32')
     n_neg = T.cast(T.sum(1-targets), 'float32')
-    logloss = - T.sum(T.log(1-df_pp))/(n_pos**np.float32(2)-n_pos) - T.sum(T.log(df_pn))/n_neg**np.float32(2)
+
+    avg_dist_pp = T.sum(df_pp)/(n_pos**2-n_pos)
+    avg_dist_pn = T.sum(df_pn)/(n_neg**2-n_neg)
+
+    avg_dist_pp = T.clip(avg_dist_pp,epsilon,1.-epsilon)
+    avg_dist_pn = T.clip(avg_dist_pn,epsilon,1.-epsilon)
+
+    logloss = -T.log(1-avg_dist_pp) - T.log(avg_dist_pn)
     return logloss 
 
 def sigmoid(x):
@@ -296,11 +309,13 @@ def score(gts, feats):
 
     feats = np.vstack(feats)
     gts = np.vstack(gts)
-    gt = np.int32(gts[:,p_transform['label_id']])
+    gts = np.int32(gts)
     feats = sigmoid(feats)
     df = np.mean(np.abs(feats[None,:,:] - feats[:,None,:]), axis=2) 
-    gt  = gt > 0.5
-    non_gt = gt < 0.5
+    gt  = gts > 0.5
+    gt = gt.flatten()
+    non_gt = gts < 0.5
+    non_gt = non_gt.flatten()
     df_pp = df[gt]
     df_pp = df_pp[:,gt]
     df_np = df[non_gt, :]
