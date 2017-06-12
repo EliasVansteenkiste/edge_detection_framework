@@ -56,9 +56,9 @@ def label_prep_function(label):
 
 # data iterators
 # 0.18308259
-batch_size = 32
-pos_batch_size = 6
-neg_batch_size = 26
+batch_size = 3
+pos_batch_size = 2
+neg_batch_size = 1
 assert batch_size == (pos_batch_size+neg_batch_size)
 nbatches_chunk = 1
 chunk_size = batch_size * nbatches_chunk
@@ -99,15 +99,16 @@ feat_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 
-valid_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
+valid_data_iterator = data_iterators.DiscriminatorDataGenerator(dataset='train-jpg',
                                                     batch_size=batch_size,
                                                     pos_batch_size=pos_batch_size,
+                                                    label_id = p_transform['label_id'],
                                                     img_ids = valid_ids,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_train,
                                                     label_prep_fun = label_prep_function,
                                                     rng=rng,
-                                                    full_batch=False, random=False, infinite=False)
+                                                    full_batch=True, random=False, infinite=False)
 
 test_data_iterator = data_iterators.DataGenerator(dataset='test-jpg',
                                                     batch_size=batch_size,
@@ -128,6 +129,8 @@ test2_data_iterator = data_iterators.DataGenerator(dataset='test2-jpg',
                                                     label_prep_fun = label_prep_function,
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
+
+
 
 nchunks_per_epoch = train_data_iterator.nsamples / chunk_size
 max_nchunks = nchunks_per_epoch * 40
@@ -250,56 +253,22 @@ def build_model():
     return namedtuple('Model', ['l_in', 'l_out', 'l_neck', 'l_target'])(l_in, l_out, l_neck, l_target)
 
 
-
 def build_objective(model, deterministic=False, epsilon=1.e-7):
     features= nn.layers.get_output(model.l_out, deterministic=deterministic)
     targets = T.cast(T.flatten(nn.layers.get_output(model.l_target)), 'int32')
-    feat = T.nnet.nnet.sigmoid(features)
+    #feat = T.nnet.nnet.sigmoid(features)
+    feat = features
     df = T.mean(abs(feat.dimshuffle(['x',0,1]) - feat.dimshuffle([0,'x',1])), axis=2)
-    b_targets = (targets > 0.5).nonzero()
-    b_no_targets = (targets < 0.5).nonzero()
-    df_pp = df[b_targets]
-    df_pp = df_pp[:,b_targets]
-
-    df_pn = df[b_targets]
-    df_pn = df[:,b_no_targets]
-
-    n_pos = T.cast(T.sum(targets), 'float32')
-    n_neg = T.cast(T.sum(1-targets), 'float32')
-
-    avg_dist_pp = T.sum(df_pp)/(n_pos**2-n_pos)
-    avg_dist_pn = T.sum(df_pn)/(n_neg**2-n_neg)
-
-    avg_dist_pp = T.clip(avg_dist_pp,epsilon,1.-epsilon)
-    avg_dist_pn = T.clip(avg_dist_pn,epsilon,1.-epsilon)
-
-    logloss = -5*T.log(1-avg_dist_pp) - T.log(avg_dist_pn)
-    return logloss
+    triplet_loss = (1+df[0,1])/(1+df[0,2])
+    return triplet_loss
 
 def build_objective2(model, deterministic=False, epsilon=1.e-7):
     features= nn.layers.get_output(model.l_out, deterministic=deterministic)
     targets = T.cast(T.flatten(nn.layers.get_output(model.l_target)), 'int32')
-    feat = T.nnet.nnet.sigmoid(features)
+    feat = features
     df = T.mean(abs(feat.dimshuffle(['x',0,1]) - feat.dimshuffle([0,'x',1])), axis=2)
-    b_targets = (targets > 0.5).nonzero()
-    b_no_targets = (targets < 0.5).nonzero()
-    df_pp = df[b_targets]
-    df_pp = df_pp[:,b_targets]
-
-    df_pn = df[b_targets]
-    df_pn = df[:,b_no_targets]
-
-    n_pos = T.cast(T.sum(targets), 'float32')
-    n_neg = T.cast(T.sum(1-targets), 'float32')
-
-    avg_dist_pp = T.sum(df_pp)/(n_pos**2-n_pos)
-    avg_dist_pn = T.sum(df_pn)/(n_neg**2-n_neg)
-
-    avg_dist_pp = T.clip(avg_dist_pp,epsilon,1.-epsilon)
-    avg_dist_pn = T.clip(avg_dist_pn,epsilon,1.-epsilon)
-
-    logloss = -T.log(1-avg_dist_pp) - T.log(avg_dist_pn)
-    return logloss 
+    triplet_loss = df[0,1]/(df[0,2]+epsilon)
+    return triplet_loss
 
 def sigmoid(x):
     s = 1. / (1. + np.exp(-x))

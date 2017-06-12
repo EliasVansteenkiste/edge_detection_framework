@@ -75,8 +75,8 @@ givens_valid[model.l_in.input_var] = x_shared
 givens_valid[model.l_target.input_var] = y_shared
 
 # theano functions
-iter_train = theano.function([idx], [train_loss, train_loss2, nn.layers.get_output(model.l_out)], givens=givens_train, updates=updates)
-iter_validate = theano.function([], [valid_loss, valid_loss2, nn.layers.get_output(model.l_out)], givens=givens_valid)
+iter_train = theano.function([idx], [train_loss, train_loss2, nn.layers.get_output(model.l_out)], givens=givens_train, updates=updates, on_unused_input='warn')
+iter_validate = theano.function([], [valid_loss, valid_loss2, nn.layers.get_output(model.l_out)], givens=givens_valid, on_unused_input='warn')
 
 if config().restart_from_save:
     print 'Load model parameters for resuming'
@@ -225,6 +225,7 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, buff
         for i, (x_chunk_valid, y_chunk_valid, ids_batch) in enumerate(
                 buffering.buffered_gen_threaded(valid_data_iterator.generate(),
                                                 buffer_size=2)):
+
             x_shared.set_value(x_chunk_valid)
             y_shared.set_value(y_chunk_valid)
             l_valid, l_valid2, pred = iter_validate()
