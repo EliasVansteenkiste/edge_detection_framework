@@ -1,6 +1,6 @@
 {
   "DATA_PATH": "/data/plnt/",
-  "METADATA_PATH": "/home/eavsteen/dsb3/storage/metadata/dsb3/",
+  "METADATA_PATH": "/mnt/storage/metadata/plnt/",
   "SAMPLE_SUBMISSION_PATH": "/data/plnt/sample_submission.csv"
 }
 
