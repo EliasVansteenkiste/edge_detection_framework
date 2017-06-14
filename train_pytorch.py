@@ -42,6 +42,7 @@ model = config().build_model()
 model.l_out.cuda() # move to gpu
 
 criterion = config().build_objective()
+criterion2 = config().build_objective2()
 
 learning_rate_schedule = config().learning_rate_schedule
 learning_rate =(learning_rate_schedule[0])
@@ -117,6 +118,7 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, buff
         # forward + backward + optimize
         outputs = model.l_out(inputs)
         loss = criterion(outputs, labels)
+        loss2 = criterion2(outputs, labels)
         loss.backward()
         optimizer.step()
 
@@ -125,15 +127,19 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, buff
         tmp_preds_train.append(pr)
         preds_train_print.append(pr)
 
-        tmp_losses_train.append(loss.cpu().data.numpy()[0])
+        loss_out = loss.cpu().data.numpy()[0]
+        loss2_out = loss2.cpu().data.numpy()[0]
 
-        losses_train_print.append(loss.cpu().data.numpy()[0])
+        tmp_losses_train.append(loss_out)
+        tmp_losses_train2.append(loss2_out)
+        losses_train_print.append(loss_out)
+        losses_train_print2.append(loss2_out)
 
     if (chunk_idx + 1) % 10 == 0:
         print 'Chunk %d/%d %.1fHz' % (chunk_idx + 1, config().max_nchunks,
                                       10. * config().nbatches_chunk * config().batch_size / (
                                       time.time() - losses_time_print[0])),
-        print np.mean(losses_train_print)
+        print np.mean(losses_train_print), np.mean(losses_train_print2)
         print 'score', config().score(gts_train_print, np.vstack(preds_train_print))
         preds_train_print = []
         gts_train_print = []
@@ -147,13 +153,13 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, buff
         print 'Chunk %d/%d' % (chunk_idx + 1, config().max_nchunks)
         # calculate mean train loss since the last validation phase
         mean_train_loss = np.mean(tmp_losses_train)
-
+        mean_train_loss2 = np.mean(tmp_losses_train2)
         mean_train_score = np.mean(config().score(tmp_gts_train, np.vstack(tmp_preds_train)))
-        print 'Mean train loss: %7f' % mean_train_loss, mean_train_score
+        print 'Mean train loss: %7f' % mean_train_loss, mean_train_loss2, mean_train_score
         losses_eval_train.append(mean_train_loss)
 
         tmp_losses_train = []
-
+        tmp_losses_train2 = []
         tmp_preds_train = []
         tmp_gts_train = []
 
@@ -171,11 +177,13 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, buff
 
             outputs = model.l_out(inputs)
             loss = criterion(outputs, labels)
+            loss2 = criterion2(outputs, labels)
 
             pr = outputs.cpu().data.numpy()
             tmp_preds_valid.append(pr)
 
             tmp_losses_valid.append(loss.cpu().data.numpy()[0])
+            tmp_losses_valid2.append(loss2.cpu().data.numpy()[0])
 
             for gt in y_chunk_valid:
                 tmp_gts_valid.append(gt)
@@ -183,11 +191,11 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, buff
 
         # calculate validation loss across validation set
         valid_loss = np.mean(tmp_losses_valid)
-
+        valid_loss2 = np.mean(tmp_losses_valid2)
         valid_score = np.mean(config().score(tmp_gts_valid, np.vstack(tmp_preds_valid)))
-        print 'Validation loss: ', valid_loss, valid_score
+        print 'Validation loss: ', valid_loss, valid_loss2, valid_score
         losses_eval_valid.append(valid_loss)
-
+        losses_eval_valid2.append(valid_loss2)
 
         now = time.time()
         time_since_start = now - start_time
