@@ -23,7 +23,7 @@ if len(sys.argv) < 2:
     sys.exit("Usage: test.py <configuration_name> <test/valid/feat>")
 
 config_name = sys.argv[1]
-set_configuration('configs', config_name)
+set_configuration('configs_pytorch', config_name)
 
 
 valid = sys.argv[2] =='valid'
@@ -37,11 +37,12 @@ metadata_path = utils.find_model_metadata(metadata_dir, config_name)
 metadata = utils.load_pkl(metadata_path)
 expid = metadata['experiment_id']
 
+print("logs")
 # logs
 logs_dir = utils.get_dir_path('logs', pathfinder.METADATA_PATH)
 sys.stdout = logger.Logger(logs_dir + '/%s-test.log' % expid)
 sys.stderr = sys.stdout
-
+print("prediction path")
 # predictions path
 predictions_dir = utils.get_dir_path('model-predictions', pathfinder.METADATA_PATH)
 outputs_path = predictions_dir + '/' + expid
@@ -49,20 +50,10 @@ utils.auto_make_dir(outputs_path)
 
 print 'Build model'
 model = config().build_model()
-model.load_state_dict(model_zoo.load_url(model_urls['densenet169']))
-print '  number of parameters: %d' % num_params
-print string.ljust('  layer output shapes:', 36),
-print string.ljust('#params:', 10),
-print 'output shape:'
-for layer in all_layers:
-    name = string.ljust(layer.__class__.__name__, 32)
-    num_param = sum([np.prod(p.get_value().shape) for p in layer.get_params()])
-    num_param = string.ljust(num_param.__str__(), 10)
-    print '    %s %s %s' % (name, num_param, layer.output_shape)
-
-nn.layers.set_all_param_values(model.l_out, metadata['param_values'])
-
-
+model.l_out.load_state_dict(metadata['param_values'])
+model.l_out.cuda()
+model.l_out.eval()
+criterion = config().build_objective()
 
 if test:
     data_iterator = config().test_data_iterator
@@ -79,20 +70,20 @@ def get_preds_targs(data_iterator):
 
     for n, (x_chunk, y_chunk, id_chunk) in enumerate(buffering.buffered_gen_threaded(data_iterator.generate())):
 
-        inputs, labels = Variable(torch.from_numpy(x_chunk_valid).cuda()), Variable(
-            torch.from_numpy(y_chunk_valid).cuda())
+        inputs, labels = Variable(torch.from_numpy(x_chunk).cuda()), Variable(
+            torch.from_numpy(y_chunk).cuda())
 
-        outputs = model.l_out(inputs)
-        loss, predictions = iter_get()
-        validation_losses.append(loss)
+        predictions = model.l_out(inputs)
+        loss = criterion(predictions, labels)
+        validation_losses.append(loss.cpu().data.numpy()[0])
         targs.append(y_chunk)
         if feat:
             for idx, img_id in enumerate(id_chunk):
                 np.savez(open(outputs_path+'/'+str(img_id)+'.npz', 'w') , features = predictions[idx])
 
-        preds.append(predictions)
+        preds.append(predictions.cpu().data.numpy())
         #print id_chunk, targets, loss
-        if n%50 ==0:
+        if n % 50 ==0:
             print n, 'batches processed'
 
     preds = np.concatenate(preds)
