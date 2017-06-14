@@ -270,6 +270,10 @@ def logloss(predictions, targets, epsilon=1.e-7, skewing_factor = 1.):
     weighted_bce = - skewing_factor * targets * np.log(preds) - (1-targets)*np.log(1-preds)    
     return np.mean(weighted_bce)
 
+def get_ids_by_tag(tag):
+    la = get_labels_array()
+    return np.where(la[:,tag]==1)[0]
+
 
 if __name__ == "__main__":
     # maxs = []
@@ -286,4 +290,5 @@ if __name__ == "__main__":
     # print np.amax(np.array(maxs))
     # print np.amin(np.array(mins))
     # print shapes
-    calculate_relative_occurences()
+    # calculate_relative_occurences()
+    print len(get_ids_by_tag(12))

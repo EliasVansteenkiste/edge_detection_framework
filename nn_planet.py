@@ -346,3 +346,46 @@ class MajorExclusivityLayer(nn.layers.Layer):
         sig = T.nnet.sigmoid(input)
         output = sig * (1-sig[:,self.idx_major][:,None])
         return output
+
+
+class L1NormLayer(nn.layers.MergeLayer):
+    """
+    takes elementwise product between 2 layers
+    """
+
+    def __init__(self, input1, input2, **kwargs):
+        super(L1NormLayer, self).__init__([input1, input2], **kwargs)
+
+    def get_output_shape_for(self, input_shapes):
+        return input_shapes[0]
+
+    def get_output_for(self, inputs, **kwargs):
+        return abs(inputs[0]-inputs[1])
+
+def l2norm(x):
+    """L2 norm.
+    Parameters
+    ----------
+    x : theano.tensor
+        Vector to take norm of.
+    Returns
+    -------
+    l2_norm : theano.tensor
+        L2 norm of vector in x
+    """
+    return T.sqrt(T.sum(T.sqr(x), axis=1))
+
+class CosineNorm(nn.layers.MergeLayer):
+    """
+    takes elementwise product between 2 layers
+    """
+
+    def __init__(self, input1, input2, **kwargs):
+        super(CosineNorm, self).__init__([input1, input2], **kwargs)
+
+    def get_output_shape_for(self, input_shapes):
+        return input_shapes[0]
+
+    def get_output_for(self, inputs, **kwargs):
+        cosine_norm = T.sum(inputs[0] * inputs[1], axis=1) / T.maximum(l2norm(inputs[0]) * l2norm(inputs[1]), 1e-7)
+        return cosine_norm

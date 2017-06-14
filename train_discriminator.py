@@ -207,7 +207,7 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, buff
         # calculate mean train loss since the last validation phase
         mean_train_loss = np.mean(tmp_losses_train)
         mean_train_loss2 = np.mean(tmp_losses_train2)
-        mean_train_score = np.mean(config().score(tmp_gts_train, tmp_preds_train))
+        mean_train_score = config().score(tmp_gts_train, tmp_preds_train)
         print 'Mean train loss: %7f' % mean_train_loss, mean_train_loss2, mean_train_score 
         losses_eval_train.append(mean_train_loss)
         losses_eval_train2.append(mean_train_loss2)
@@ -241,7 +241,7 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, buff
         # calculate validation loss across validation set
         valid_loss = np.mean(tmp_losses_valid)
         valid_loss2 = np.mean(tmp_losses_valid2)
-        valid_score = np.mean(config().test_score(tmp_gts_valid, tmp_preds_valid))
+        valid_score = config().test_score(tmp_gts_valid, tmp_preds_valid)
         print 'Validation loss: ', valid_loss, valid_loss2, valid_score
         losses_eval_valid.append(valid_loss)
         losses_eval_valid2.append(valid_loss2)
