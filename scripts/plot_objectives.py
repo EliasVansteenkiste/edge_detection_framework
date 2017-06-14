@@ -38,12 +38,27 @@ for line in file:
 #print validation_errors
 #print validation_idcs
 
+
 print 'min training error', np.amin(np.array(training_errors)), 'at', np.argmin(np.array(training_errors)), '/', len(training_errors)
 print 'min validation error', np.amin(np.array(validation_errors)), 'at', np.argmin(np.array(validation_errors)), '/', len(validation_errors)
 
 
 print 'max training f2 score', np.amax(np.array(training_f2)), 'at', np.argmax(np.array(training_f2)), '/', len(training_f2)
 print 'max validation f2 score', np.amax(np.array(validation_f2)), 'at', np.argmax(np.array(validation_f2)), '/', len(validation_f2)
+
+print np.amin(np.array(training_errors)), 
+print str(np.argmin(np.array(training_errors))) + '/' + str(len(training_errors)),
+print np.amax(np.array(training_f2)),
+print str(np.argmax(np.array(training_f2))) + '/' + str(len(training_f2)),
+
+
+print np.amin(np.array(validation_errors)),
+print str(np.argmin(np.array(validation_errors))) + '/' + str(len(validation_errors)),
+print np.amax(np.array(validation_f2)),
+print str(np.argmax(np.array(validation_f2))) + '/' + str(len(validation_f2))
+
+
+
 
 
 fig = plt.figure()
