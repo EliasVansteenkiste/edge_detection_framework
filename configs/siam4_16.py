@@ -22,7 +22,6 @@ rng = np.random.RandomState(42)
 p_transform = {'patch_size': (256, 256),
                'channels': 4,
                'n_labels': 1,
-               'n_feat': 64,
                'label_id': 16}
 
 
@@ -56,10 +55,7 @@ def label_prep_function(label):
 
 # data iterators
 # 0.18308259
-batch_size = 3
-pos_batch_size = 2
-neg_batch_size = 1
-assert batch_size == (pos_batch_size+neg_batch_size)
+batch_size = 32
 nbatches_chunk = 1
 chunk_size = batch_size * nbatches_chunk
 
@@ -78,10 +74,8 @@ test_ids = np.arange(40669)
 test2_ids = np.arange(20522)
 
 
-train_data_iterator = data_iterators.DiscriminatorDataGenerator(dataset='train-jpg',
-                                                    batch_size=batch_size,
-                                                    pos_batch_size=pos_batch_size,
-                                                    label_id = p_transform['label_id'],
+train_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
+                                                    batch_size=chunk_size,
                                                     img_ids = train_ids,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_train,
@@ -90,29 +84,25 @@ train_data_iterator = data_iterators.DiscriminatorDataGenerator(dataset='train-j
                                                     full_batch=True, random=True, infinite=True)
 
 feat_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
-                                                    batch_size=batch_size,
-                                                    pos_batch_size=pos_batch_size,
-                                                    img_ids = train_ids,
+                                                    batch_size=chunk_size,
+                                                    img_ids = all_ids,
                                                     p_transform=p_transform,
-                                                    data_prep_fun = data_prep_function_train,
+                                                    data_prep_fun = data_prep_function_valid,
                                                     label_prep_fun = label_prep_function,
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 
-valid_data_iterator = data_iterators.DiscriminatorDataGenerator(dataset='train-jpg',
-                                                    batch_size=batch_size,
-                                                    pos_batch_size=pos_batch_size,
-                                                    label_id = p_transform['label_id'],
+valid_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
+                                                    batch_size=chunk_size,
                                                     img_ids = valid_ids,
                                                     p_transform=p_transform,
-                                                    data_prep_fun = data_prep_function_train,
+                                                    data_prep_fun = data_prep_function_valid,
                                                     label_prep_fun = label_prep_function,
                                                     rng=rng,
                                                     full_batch=True, random=False, infinite=False)
 
 test_data_iterator = data_iterators.DataGenerator(dataset='test-jpg',
-                                                    batch_size=batch_size,
-                                                    pos_batch_size=pos_batch_size,
+                                                    batch_size=chunk_size,
                                                     img_ids = test_ids,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_valid,
@@ -121,8 +111,7 @@ test_data_iterator = data_iterators.DataGenerator(dataset='test-jpg',
                                                     full_batch=False, random=False, infinite=False)
 
 test2_data_iterator = data_iterators.DataGenerator(dataset='test2-jpg',
-                                                    batch_size=batch_size,
-                                                    pos_batch_size=pos_batch_size,
+                                                    batch_size=chunk_size,
                                                     img_ids = test2_ids,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_valid,
@@ -140,12 +129,12 @@ validate_every = int(0.1 * nchunks_per_epoch)
 save_every = int(1. * nchunks_per_epoch)
 
 learning_rate_schedule = {
-    0: 5e-4,
-    int(max_nchunks * 0.4): 2e-4,
-    int(max_nchunks * 0.6): 1e-4,
-    int(max_nchunks * 0.7): 5e-5,
-    int(max_nchunks * 0.8): 2e-5,
-    int(max_nchunks * 0.9): 1e-5
+    0: 1e-5,
+    int(max_nchunks * 0.4): 5e-4,
+    int(max_nchunks * 0.6): 2e-4,
+    int(max_nchunks * 0.7): 1e-4,
+    int(max_nchunks * 0.8): 5e-5,
+    int(max_nchunks * 0.9): 2e-5
 }
 
 # model
@@ -244,95 +233,72 @@ def build_model():
 
     l = drop(l)
     l_neck = nn.layers.GlobalPoolLayer(l)
+    
+    l_first_half = nn.layers.SliceLayer(l_neck, indices=slice(0,batch_size/2), axis=0)
+    l_second_half = nn.layers.SliceLayer(l_neck, indices=slice(batch_size/2,batch_size),axis=0)
+    
+    l_cos_norm = nn_planet.CosineNorm(l_first_half, l_second_half)
 
-    l_out = nn.layers.DenseLayer(l_neck, num_units=p_transform['n_feat'],
+
+    l_out = nn.layers.DenseLayer(l_cos_norm, num_units=1,
                                  W=nn.init.Orthogonal(),
-                                 nonlinearity=nn.nonlinearities.identity)
+                                 b=nn.init.Constant(0.5),
+                                 nonlinearity=nn.nonlinearities.sigmoid)
+
 
 
     return namedtuple('Model', ['l_in', 'l_out', 'l_neck', 'l_target'])(l_in, l_out, l_neck, l_target)
 
 
 def build_objective(model, deterministic=False, epsilon=1.e-7):
-    features= nn.layers.get_output(model.l_out, deterministic=deterministic)
-    targets = T.cast(T.flatten(nn.layers.get_output(model.l_target)), 'int32')
-    #feat = T.nnet.nnet.sigmoid(features)
-    feat = features
-    df = T.sum(abs(feat.dimshuffle(['x',0,1]) - feat.dimshuffle([0,'x',1])), axis=2)
-    
-    d_p = df[0,1]
-    d_n1 = df[0,2]
-    d_n2 = df[1,2]
-    d_n = T.min(T.stack([d_n1, d_n2]))
-
-    margin = np.float32(1.)
-    zero = np.float32(0.)
-    triplet_dist_hinge = T.max(T.stack([margin + d_p - d_n, zero]))
-    return triplet_dist_hinge
+    predictions = T.flatten(nn.layers.get_output(model.l_out, deterministic=deterministic))
+    targets = T.flatten(nn.layers.get_output(model.l_target))
+    targets = T.eq(targets[:batch_size/2],targets[batch_size/2:])
+    targets = T.cast(targets,'float32')
+    #logs = [-T.log(preds), -T.log(1-preds)]
+    mse = (predictions-targets)**2    
+    # reg = nn.regularization.l2(predictions)                                                                                                                                                                                       
+    # weight_decay=0.00004
+    return T.mean(mse) #+ weight_decay * reg 
 
 def build_objective2(model, deterministic=False, epsilon=1.e-7):
-    features= nn.layers.get_output(model.l_out, deterministic=deterministic)
-    targets = T.cast(T.flatten(nn.layers.get_output(model.l_target)), 'int32')
-    #feat = T.nnet.nnet.sigmoid(features)
-    feat = features
-    df = T.sum(abs(feat.dimshuffle(['x',0,1]) - feat.dimshuffle([0,'x',1])), axis=2)
-    
-    d_p = df[0,1]
-    d_n1 = df[0,2]
-    d_n2 = df[1,2]
-    d_n = T.min(T.stack([d_n1, d_n2]))
-    margin = np.float32(1.)
-    zero = np.float32(0.)
-    triplet_dist_hinge = T.max(T.stack([margin + d_p - d_n, zero]))
-    return triplet_dist_hinge
+    predictions = T.flatten(nn.layers.get_output(model.l_out, deterministic=deterministic))
+    targets = T.flatten(nn.layers.get_output(model.l_target))
+    targets = T.eq(targets[:batch_size/2],targets[batch_size/2:])
+    targets = T.cast(targets,'float32')
+    preds = T.clip(predictions, epsilon, 1.-epsilon)
+    #logs = [-T.log(preds), -T.log(1-preds)]
+    bce = - targets * T.log(preds) - (1-targets)*T.log(1-preds)    
+    reg = nn.regularization.l2(predictions)                                                                                                                                                                                       
+    weight_decay=0.00004
+    return T.mean(bce) 
 
-    # features= nn.layers.get_output(model.l_out, deterministic=deterministic)
-    # targets = T.cast(T.flatten(nn.layers.get_output(model.l_target)), 'int32')
-    # #feat = T.nnet.nnet.sigmoid(features)
-    # feat = features
-    # df = T.mean((feat.dimshuffle(['x',0,1]) - feat.dimshuffle([0,'x',1]))**2, axis=2)
-    
-    # d_p = df[0,1]
-    # d_n1 = df[0,2]
-    # d_n2 = df[1,2]
-    # d_n = T.min(T.stack([d_n1, d_n2]))
-    # margin = np.float32(1.)
-    # zero = np.float32(0.)
-    # triplet_dist_hinge = T.max(T.stack([margin + d_p - d_n, zero]))
-    # return d_n
-
-def sigmoid(x):
-    s = 1. / (1. + np.exp(-x))
-    return s
-
-
-def score(gts, feats):
-
-    feats = np.vstack(feats)
+def score(gts, preds, epsilon=1.e-11):
+    preds = np.vstack(preds)
+    preds = preds.flatten()
     gts = np.vstack(gts)
     gts = np.int32(gts)
-    feats = sigmoid(feats)
-    df = np.mean(np.abs(feats[None,:,:] - feats[:,None,:]), axis=2) 
+
     gt  = gts > 0.5
     gt = gt.flatten()
     non_gt = gts < 0.5
     non_gt = non_gt.flatten()
-    df_pp = df[gt]
-    df_pp = df_pp[:,gt]
-    df_np = df[non_gt, :]
-    df_np = df_np[:, gt]
-    preds_p = 1-np.mean(df_pp,axis=1)
-    preds_n = 1-np.mean(df_np,axis=1)
-    treshold = 0.5
-    tp = np.sum(preds_p>treshold)
-    fp = np.sum(preds_n>treshold)
-    fn = np.sum(preds_p<treshold)
 
-    return np.array([tp, fp, fn])
+    assert(gts.shape[0]%2==0)
+    n_half = gts.shape[0]/2
+    targets = np.logical_and(gt[:n_half], gt[n_half:])
+    non_targets = np.logical_not(targets)
 
+    preds = preds > 0.5
+
+    tp = np.sum(np.logical_and(preds,targets))
+    fp = np.sum(preds[non_targets])
+    fn = np.sum(targets[np.logical_not(preds)])
+    tn = np.sum(non_targets[np.logical_not(preds)])
+
+    return [5.*tp/(5*tp+4*fn+fp+epsilon), tp, fp, fn, tn]
 
 test_score = score
-
 
 def build_updates(train_loss, model, learning_rate):
     updates = nn.updates.adam(train_loss, nn.layers.get_all_params(model.l_out, trainable=True), learning_rate)
