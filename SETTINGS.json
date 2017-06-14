@@ -1,7 +1,7 @@
 {
   "DATA_PATH": "/data/plnt/",
-  "METADATA_PATH": "/mnt/storage/metadata/plnt/",
-  "SAMPLE_SUBMISSION_PATH": "/data/plnt/sample_submission.csv"
+  "METADATA_PATH": "/data/metadata/plnt/",
+  "SAMPLE_SUBMISSION_PATH": "/data/plnt/sample_submission_v2.csv"
 }
 
 

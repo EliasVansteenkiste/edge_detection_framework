@@ -189,3 +189,5 @@ Temporary Items
 .apdisk
 
 # End of https://www.gitignore.io/api/pycharm,python,linux,macos
+
+*.jpg
