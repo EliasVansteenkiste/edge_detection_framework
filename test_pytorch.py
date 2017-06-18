@@ -15,12 +15,14 @@ import logger
 import app
 import submission
 import torch
+import os
+import cPickle
 from torch.autograd import Variable
 
 theano.config.warn_float64 = 'raise'
 
-if len(sys.argv) < 2:
-    sys.exit("Usage: test.py <configuration_name> <test/valid/feat>")
+if len(sys.argv) < 3:
+    sys.exit("Usage: test.py <configuration_name> <test/valid/feat/train> <dump 1/0>")
 
 config_name = sys.argv[1]
 set_configuration('configs_pytorch', config_name)
@@ -29,6 +31,13 @@ set_configuration('configs_pytorch', config_name)
 valid = sys.argv[2] =='valid'
 test = sys.argv[2] == 'test'
 feat = sys.argv[2] == 'feat'
+train = sys.argv[2] == 'train'
+
+dump = False
+if len(sys.argv) == 4:
+    if sys.argv[3]=="1":
+        dump=True
+
 
 # metadata
 metadata_dir = utils.get_dir_path('models', pathfinder.METADATA_PATH)
@@ -47,6 +56,9 @@ print("prediction path")
 predictions_dir = utils.get_dir_path('model-predictions', pathfinder.METADATA_PATH)
 outputs_path = predictions_dir + '/' + expid
 utils.auto_make_dir(outputs_path)
+
+if dump:
+    predicition_dump = os.path.join(outputs_path,expid+"_"+sys.argv[2]+"_predictions.p")
 
 print 'Build model'
 model = config().build_model()
@@ -70,8 +82,8 @@ def get_preds_targs(data_iterator):
 
     for n, (x_chunk, y_chunk, id_chunk) in enumerate(buffering.buffered_gen_threaded(data_iterator.generate())):
 
-        inputs, labels = Variable(torch.from_numpy(x_chunk).cuda()), Variable(
-            torch.from_numpy(y_chunk).cuda())
+        inputs, labels = Variable(torch.from_numpy(x_chunk).cuda(),volatile=True), Variable(
+            torch.from_numpy(y_chunk).cuda(),volatile=True)
 
         predictions = model.l_out(inputs)
         loss = criterion(predictions, labels)
@@ -92,13 +104,23 @@ def get_preds_targs(data_iterator):
 
     return preds, targs
 
-
+if train:
+    train_it = config().trainset_valid_data_iterator
+    preds, targs = get_preds_targs(train_it)
+    if dump:
+        file = open(predicition_dump,"wb")
+        cPickle.dump([preds,targs],file)
+        file.close()
 
 
 if valid:
     valid_it = config().valid_data_iterator
     preds, targs = get_preds_targs(valid_it)
 
+    if dump:
+        file = open(predicition_dump,"wb")
+        cPickle.dump([preds,targs],file)
+        file.close()
 
     # weather_targs = []
     # weather_preds = []
