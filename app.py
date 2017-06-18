@@ -274,6 +274,32 @@ def get_ids_by_tag(tag):
     la = get_labels_array()
     return np.where(la[:,tag]==1)[0]
 
+def remove_tags(labels, d_l2i):
+    # d_l2i dict with label id as key and as value a list with img ids
+    for label_id, img_ids in d_l2i.iteritems():
+        for img_id in img_ids:
+            if labels[img_id,label_id]:
+                labels[img_id,label_id] = 0
+            else:
+                print 'WARNING in remove_tags: for image ', img_id, ' the tag for label id', label_id, 'is already 0'
+    return labels
+
+def read_img_ids_from_lst_file(path):
+    with open(path, 'r') as file:
+        lst = file.readlines()
+    img_ids = []
+    for filename in lst:
+        img_ids.append(int(filename.split('_')[1].split('.')[0]))
+    return img_ids 
+
+def _test_remove_tags():
+    test_labels = np.ones((10,17))
+    d_l2i = {2:[2,8], 5:[5], 10:[0,4,5,9]}
+    print remove_tags(test_labels, d_l2i)
+
+    test_labels = np.ones((10,17))
+    test_labels[5,5] = 0
+    print remove_tags(test_labels, d_l2i)
 
 if __name__ == "__main__":
     # maxs = []
@@ -291,4 +317,6 @@ if __name__ == "__main__":
     # print np.amin(np.array(mins))
     # print shapes
     # calculate_relative_occurences()
-    print len(get_ids_by_tag(12))
+    print read_img_ids_from_lst_file('manual_labeling/fn_cultivation_wrongly_labeled.lst')
+
+
