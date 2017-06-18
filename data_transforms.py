@@ -213,6 +213,8 @@ def _print_stats_channels(img, channel_stats, channel_data):
         print 'var', np.var(ch_data)
         channel_stats[str(ch)+'var'].append(np.var(ch_data))
 
+def rescale(x,factor):
+    return skimage.transform.rescale(x,factor)
 
 if __name__ == "__main__":
     _test_tiling()
