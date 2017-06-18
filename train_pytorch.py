@@ -104,6 +104,7 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, buff
         gts_train_print.append(gt)
 
     # make nbatches_chunk iterations
+    model.l_out.train()
     for b in xrange(config().nbatches_chunk):
 
         losses_time_print.append(time.time())
@@ -169,11 +170,13 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, buff
         tmp_losses_valid2 = []
         tmp_preds_valid = []
         tmp_gts_valid = []
+
+        model.l_out.eval()
         for i, (x_chunk_valid, y_chunk_valid, ids_batch) in enumerate(
                 buffering.buffered_gen_threaded(valid_data_iterator.generate(),
                                                 buffer_size=2)):
-            inputs, labels = Variable(torch.from_numpy(x_chunk_valid).cuda()), Variable(
-                torch.from_numpy(y_chunk_valid).cuda())
+            inputs, labels = Variable(torch.from_numpy(x_chunk_valid).cuda(),volatile=True), Variable(
+                torch.from_numpy(y_chunk_valid).cuda(),volatile=True)
 
             outputs = model.l_out(inputs)
             loss = criterion(outputs, labels)
