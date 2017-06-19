@@ -28,7 +28,8 @@ valid = sys.argv[2] =='valid'
 test = sys.argv[2] == 'test'
 feat = sys.argv[2] == 'feat'
 train = sys.argv[2] == 'train'
-tta = sys.argv[2] == 'tta'
+valid_tta = sys.argv[2] == 'valid_tta'
+test_tta = sys.argv[2] == 'test_tta'
 
 # metadata
 metadata_dir = utils.get_dir_path('models', pathfinder.METADATA_PATH)
@@ -128,6 +129,43 @@ def get_preds_targs(data_iterator):
 
     return preds, targs, ids
 
+def get_preds_targs_tta(data_iterator):
+    print 'Data'
+    print 'n', sys.argv[2], ': %d' % data_iterator.nsamples
+
+    validation_losses = []
+    preds = []
+    targs = []
+    ids = []
+
+    for n, (x_chunk, y_chunk, id_chunk) in enumerate(buffering.buffered_gen_threaded(data_iterator.generate())):
+        # load chunk to GPU
+        # if n == 100:
+        #     break
+        x_shared.set_value(x_chunk)
+        y_shared.set_value(y_chunk)
+        loss, predictions = iter_get()
+        validation_losses.append(loss)
+        targs.append(y_chunk)
+        ids.append(id_chunk)
+        if feat:
+            for idx, img_id in enumerate(id_chunk):
+                np.savez(open(outputs_path+'/'+str(img_id)+'.npz', 'w') , features = predictions[idx])
+
+        preds.append(predictions)
+        #print id_chunk, targets, loss
+        if n%50 ==0:
+            print n, 'batches processed'
+
+    preds = np.concatenate(preds)
+    targs = np.concatenate(targs)
+    ids = np.concatenate(ids)
+    print 'Validation loss', np.mean(validation_losses)
+
+    return preds, targs, ids
+
+
+
 
 if train:
     train_it = config().train_data_iterator2
@@ -206,7 +244,7 @@ if train:
         print
         np.savez(open(outputs_path+'/fn_class_'+str(i)+'.npz', 'w') , idcs = fn_img_ids)
 
-if valid:
+if valid and valid_tta:
     valid_it = config().valid_data_iterator
     preds, targs, ids = get_preds_targs(valid_it)
 
@@ -270,12 +308,20 @@ if test:
     test_it = config().test_data_iterator
     preds, _, ids = get_preds_targs(test_it)
     for i, p in enumerate(preds):
-        imgid2pred['test_'+str(i)] = app.apply_argmax_threshold(p)
+        if config().apply_argmax_weather:
+            qp = app.apply_argmax_threshold(p)
+        else:
+            qp = app.apply_threshold(p)
+        imgid2pred['test_'+str(i)] = qp
 
     test2_it = config().test2_data_iterator
     preds, _, ids = get_preds_targs(test2_it)
     for i, p in enumerate(preds):
-        imgid2pred['file_'+str(i)] = app.apply_argmax_threshold(p)
+        if config().apply_argmax_weather:
+            qp = app.apply_argmax_threshold(p)
+        else:
+            qp = app.apply_threshold(p)
+        imgid2pred['file_'+str(i)] = qp
 
     print len(imgid2pred), 'predictions'
     #do not forget argmax for weather labels

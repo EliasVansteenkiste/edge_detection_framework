@@ -255,6 +255,9 @@ def apply_argmax_threshold(prediction):
     output[4:] = prediction[4:]>0.5
     return output
 
+def apply_threshold(prediction, threshold=.5):
+    return prediction>threshold
+
 def calculate_relative_occurences():
     a_labels = get_labels_array()
     print a_labels.shape

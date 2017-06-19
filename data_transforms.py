@@ -78,6 +78,9 @@ def apply_lossless(x, rot90_value, flip):
         x = np.flip(x, 1)
     return x
 
+def rescale(x,factor):
+    return skimage.transform.rescale(x,factor)
+
 def generate_all_lossless(x, p_aug):
     augmentations = []
     for rot90_value in p_aug['rot90_values']:
