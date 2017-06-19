@@ -258,20 +258,24 @@ def build_objective(model, deterministic=False, epsilon=1.e-7):
     targets = T.cast(T.flatten(nn.layers.get_output(model.l_target)), 'int32')
     #feat = T.nnet.nnet.sigmoid(features)
     df = T.mean(abs(feat.dimshuffle(['x',0,1]) - feat.dimshuffle([0,'x',1])), axis=2)
-    
     avg_triplet_loss = 0
     for i in range(2,batch_size):
         triplet_loss = (1+df[0,1])/(1+df[0,i])
         avg_triplet_loss += triplet_loss
     return avg_triplet_loss/(batch_size-2)
+    
 
 def build_objective2(model, deterministic=False, epsilon=1.e-7):
-    features= nn.layers.get_output(model.l_out, deterministic=deterministic)
+    feat= nn.layers.get_output(model.l_out, deterministic=deterministic)
     targets = T.cast(T.flatten(nn.layers.get_output(model.l_target)), 'int32')
-    feat = features
+    #feat = T.nnet.nnet.sigmoid(features)
     df = T.mean(abs(feat.dimshuffle(['x',0,1]) - feat.dimshuffle([0,'x',1])), axis=2)
-    triplet_loss = df[0,1]/(df[0,2]+epsilon)
-    return triplet_loss
+    avg_triplet_loss = 0
+    for i in range(2,batch_size):
+        triplet_loss = df[0,1]/(df[0,i]+epsilon)
+        avg_triplet_loss += triplet_loss
+    return avg_triplet_loss/(batch_size-2)
+
 
 def sigmoid(x):
     s = 1. / (1. + np.exp(-x))
