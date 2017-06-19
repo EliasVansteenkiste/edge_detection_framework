@@ -68,7 +68,7 @@ no_augmentation_params = {
 def random_lossless(x, p_aug, rng):
     rot90_value = rng.choice(p_aug['rot90_values'])
     flip = rng.choice(p_aug['flip'])
-    apply_lossless(x, rot90_value, flip)
+    x = apply_lossless(x, rot90_value, flip)
     return x
 
 def apply_lossless(x, rot90_value, flip):
@@ -224,8 +224,6 @@ def _print_stats_channels(img, channel_stats, channel_data):
         print 'var', np.var(ch_data)
         channel_stats[str(ch)+'var'].append(np.var(ch_data))
 
-def rescale(x,factor):
-    return skimage.transform.rescale(x,factor)
 
 if __name__ == "__main__":
     _test_tiling()
