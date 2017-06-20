@@ -331,7 +331,7 @@ class TTADataGenerator(object):
             try:
                 img = app.read_compressed_image(self.dataset, img_id)
             except Exception:
-                print 'cannot open ', img_id
+                print 'cannot open ', self.dataset, img_id
             x_batch = self.tta.make_augmentations(self.data_prep_fun(x=img))
             if self.duplicate_label:
                 y_batch = self.tta.duplicate_label(self.label_prep_fun(self.labels[img_id]))
