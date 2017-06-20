@@ -15,6 +15,7 @@ import pathfinder
 import utils
 import app
 import nn_planet
+import tta
 
 restart_from_save = None
 rng = np.random.RandomState(42)
@@ -111,7 +112,18 @@ valid_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 
-apply_argmax_weather = false
+
+tta = tta.LosslessTTA(p_augmentation)
+tta_valid_data_iterator = data_iterators.TTADataGenerator(dataset='train-jpg',
+                                                    tta = tta,
+                                                    img_ids = valid_ids,
+                                                    p_transform=p_transform,
+                                                    data_prep_fun = data_prep_function_valid,
+                                                    label_prep_fun = label_prep_function,
+                                                    rng=rng,
+                                                    full_batch=False, random=False, infinite=False)
+
+apply_argmax_weather = False
 test_data_iterator = data_iterators.DataGenerator(dataset='test-jpg',
                                                     batch_size=chunk_size,
                                                     img_ids = test_ids,

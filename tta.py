@@ -13,7 +13,7 @@ class TTA():
         duplication = []
         for i in range(self.n_augmentations):
             duplication.append(np.copy(label))
-        return np.stack(duplication)
+        return np.float32(np.stack(duplication))
 
 
 class LosslessTTA(TTA):

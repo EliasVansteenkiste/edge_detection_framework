@@ -14,6 +14,7 @@ from configuration import config, set_configuration
 import logger
 import app
 import submission
+import tta
 
 theano.config.warn_float64 = 'raise'
 
@@ -75,14 +76,12 @@ givens_valid[model.l_in.input_var] = x_shared
 givens_valid[model.l_target.input_var] = y_shared
 
 # theano functions
-if valid or test or train:
-    iter_get = theano.function([], [valid_loss, nn.layers.get_output(model.l_out, deterministic=True)],
-                                       givens=givens_valid)
-elif feat:
+if feat:
     iter_get = theano.function([], [valid_loss, nn.layers.get_output(model.l_feat, deterministic=True)],
                                        givens=givens_valid)
 else:
-    raise
+    iter_get = theano.function([], [valid_loss, nn.layers.get_output(model.l_out, deterministic=True)],
+                                       givens=givens_valid)
 
 
 
@@ -92,6 +91,10 @@ elif train:
     data_iterator = config().train_data_iterator2
 elif feat:
     data_iterator = config().feat_data_iterator
+elif valid_tta:
+    data_iterator = config().tta_valid_data_iterator
+# elif test_tta:
+#     data_iterator = config().tta_test_data_iterator
 
 
 def get_preds_targs(data_iterator):
@@ -145,21 +148,26 @@ def get_preds_targs_tta(data_iterator):
         x_shared.set_value(x_chunk)
         y_shared.set_value(y_chunk)
         loss, predictions = iter_get()
-        validation_losses.append(loss)
-        targs.append(y_chunk)
-        ids.append(id_chunk)
-        if feat:
-            for idx, img_id in enumerate(id_chunk):
-                np.savez(open(outputs_path+'/'+str(img_id)+'.npz', 'w') , features = predictions[idx])
 
+        final_prediction = np.mean(predictions, axis=0)
+        avg_loss = np.mean(loss, axis=0)
+
+        validation_losses.append(avg_loss)
+        targs.append(y_chunk[0])
+        ids.append(id_chunk)
         preds.append(predictions)
-        #print id_chunk, targets, loss
+
         if n%50 ==0:
             print n, 'batches processed'
 
-    preds = np.concatenate(preds)
-    targs = np.concatenate(targs)
-    ids = np.concatenate(ids)
+    preds = np.stack(preds)
+    targs = np.stack(targs)
+    ids = np.stack(ids)
+    
+    print preds.shape
+    print targs.shape
+    print ids.shape
+
     print 'Validation loss', np.mean(validation_losses)
 
     return preds, targs, ids
@@ -168,8 +176,7 @@ def get_preds_targs_tta(data_iterator):
 
 
 if train:
-    train_it = config().train_data_iterator2
-    preds, targs, ids = get_preds_targs(train_it)
+    preds, targs, ids = get_preds_targs(data_iterator)
 
 
     # weather_targs = []
@@ -244,9 +251,12 @@ if train:
         print
         np.savez(open(outputs_path+'/fn_class_'+str(i)+'.npz', 'w') , idcs = fn_img_ids)
 
-if valid and valid_tta:
-    valid_it = config().valid_data_iterator
-    preds, targs, ids = get_preds_targs(valid_it)
+if valid or valid_tta:
+    if valid:
+        preds, targs, ids = get_preds_targs(data_iterator)
+    elif valid_tta:
+        preds, targs, ids = get_preds_targs_tta(data_iterator)
+
 
 
     # weather_targs = []
