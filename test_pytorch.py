@@ -177,16 +177,20 @@ if valid:
     print 4*np.array(fps)+np.array(fns)
 
 if test:
+
     imgid2pred = {}
+    imgid2raw = {}
     test_it = config().test_data_iterator
     preds, _ = get_preds_targs(test_it)
     for i, p in enumerate(preds):
-        imgid2pred['test_'+str(i)] = app.apply_argmax_threshold(p)
+        imgid2pred['test_'+str(i)] = p > 0.5
+        imgid2raw['test_' + str(i)] = p
 
     test2_it = config().test2_data_iterator
     preds, _ = get_preds_targs(test2_it)
     for i, p in enumerate(preds):
-        imgid2pred['file_'+str(i)] = app.apply_argmax_threshold(p)
+        imgid2pred['file_'+str(i)] = p > 0.5
+        imgid2raw['file_' + str(i)] = p
 
     #do not forget argmax for weather labels
     print 'writing submission'
@@ -194,6 +198,13 @@ if test:
     output_csv_file = submissions_dir + '/%s-%s.csv' % (expid, sys.argv[2])
     submission.write(imgid2pred, output_csv_file)
 
+    predictions_dir = utils.get_dir_path('model-predictions', pathfinder.METADATA_PATH)
+    outputs_path = predictions_dir + '/' + expid
+    utils.auto_make_dir(outputs_path)
+    output_pickle_file = outputs_path + '/%s-%s.pkl' % (expid, sys.argv[2])
+    file = open(output_pickle_file,"wb")
+    cPickle.dump(imgid2raw,file)
+    file.close()
 
 
 
