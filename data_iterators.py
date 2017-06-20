@@ -309,7 +309,6 @@ class TTADataGenerator(object):
         self.labels = labels
 
     def generate(self):
-        while True:
             rand_idxs = np.arange(len(self.img_ids))
             if self.random:
                 self.rng.shuffle(rand_idxs)
@@ -336,10 +335,6 @@ class TTADataGenerator(object):
                 y_batch = self.tta.duplicate_label(self.label_prep_fun(self.labels[img_id]))
 
                 yield x_batch, y_batch, img_id
-
-            if not self.infinite:
-                break
-
 
 def _test_data_generator():
         #testing data iterator 

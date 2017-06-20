@@ -133,6 +133,15 @@ test_data_iterator = data_iterators.DataGenerator(dataset='test-jpg',
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 
+tta_test_data_iterator = data_iterators.TTADataGenerator(dataset='test-jpg',
+                                                    tta = tta,
+                                                    img_ids = test_ids,
+                                                    p_transform=p_transform,
+                                                    data_prep_fun = data_prep_function_valid,
+                                                    label_prep_fun = label_prep_function,
+                                                    rng=rng,
+                                                    full_batch=False, random=False, infinite=False)
+
 test2_data_iterator = data_iterators.DataGenerator(dataset='test2-jpg',
                                                     batch_size=chunk_size,
                                                     img_ids = test2_ids,
@@ -141,6 +150,16 @@ test2_data_iterator = data_iterators.DataGenerator(dataset='test2-jpg',
                                                     label_prep_fun = label_prep_function,
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
+
+tta_test2_data_iterator = data_iterators.TTADataGenerator(dataset='test2-jpg',
+                                                    tta = tta,
+                                                    img_ids = test2_ids,
+                                                    p_transform=p_transform,
+                                                    data_prep_fun = data_prep_function_valid,
+                                                    label_prep_fun = label_prep_function,
+                                                    rng=rng,
+                                                    full_batch=False, random=False, infinite=False)
+
 
 nchunks_per_epoch = train_data_iterator.nsamples / chunk_size
 max_nchunks = nchunks_per_epoch * 40

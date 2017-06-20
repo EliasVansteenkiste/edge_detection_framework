@@ -136,28 +136,28 @@ def get_preds_targs_tta(data_iterator):
     print 'Data'
     print 'n', sys.argv[2], ': %d' % data_iterator.nsamples
 
-    validation_losses = []
+    #validation_losses = []
     preds = []
     targs = []
     ids = []
 
     for n, (x_chunk, y_chunk, id_chunk) in enumerate(buffering.buffered_gen_threaded(data_iterator.generate())):
         # load chunk to GPU
-        # if n == 100:
-        #     break
+        #if n == 10:
+        #    break
         x_shared.set_value(x_chunk)
         y_shared.set_value(y_chunk)
         loss, predictions = iter_get()
 
         final_prediction = np.mean(predictions, axis=0)
-        avg_loss = np.mean(loss, axis=0)
+        #avg_loss = np.mean(loss, axis=0)
 
-        validation_losses.append(avg_loss)
+        #validation_losses.append(avg_loss)
         targs.append(y_chunk[0])
         ids.append(id_chunk)
-        preds.append(predictions)
+        preds.append(final_prediction)
 
-        if n%50 ==0:
+        if n%1000 ==0:
             print n, 'batches processed'
 
     preds = np.stack(preds)
@@ -168,7 +168,7 @@ def get_preds_targs_tta(data_iterator):
     print targs.shape
     print ids.shape
 
-    print 'Validation loss', np.mean(validation_losses)
+    #print 'Validation loss', np.mean(validation_losses)
 
     return preds, targs, ids
 
@@ -272,6 +272,8 @@ if valid or valid_tta:
     print 'Calculating F2 scores'
     threshold = 0.5
     qpreds = preds > threshold
+    print targs.shape
+    print qpreds.shape
     print app.f2_score(targs[:,:17], qpreds[:,:17])
     print app.f2_score(targs[:,:17], qpreds[:,:17], average=None)
     print 'Calculating F2 scores (argmax for weather class)'
@@ -313,10 +315,16 @@ if valid or valid_tta:
     print app.get_headers()
     print 4*np.array(fps)+np.array(fns)
 
-if test:
+if test or test_tta:
     imgid2pred = {}
-    test_it = config().test_data_iterator
-    preds, _, ids = get_preds_targs(test_it)
+    
+    if test:
+        test_it = config().test_data_iterator
+        preds, _, ids = get_preds_targs(test_it)
+    elif test_tta:
+        test_it = config().tta_test_data_iterator
+        preds, _, ids = get_preds_targs_tta(test_it)
+
     for i, p in enumerate(preds):
         if config().apply_argmax_weather:
             qp = app.apply_argmax_threshold(p)
@@ -324,8 +332,13 @@ if test:
             qp = app.apply_threshold(p)
         imgid2pred['test_'+str(i)] = qp
 
-    test2_it = config().test2_data_iterator
-    preds, _, ids = get_preds_targs(test2_it)
+    if test:
+        test2_it = config().test2_data_iterator
+        preds, _, ids = get_preds_targs(test2_it)
+    elif test_tta:
+        test2_it = config().tta_test2_data_iterator
+        preds, _, ids = get_preds_targs_tta(test2_it)
+
     for i, p in enumerate(preds):
         if config().apply_argmax_weather:
             qp = app.apply_argmax_threshold(p)
