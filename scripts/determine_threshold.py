@@ -40,6 +40,8 @@ for t in range(num_classes):
 
 print("Train F2 score: "+str(fbeta_score(train_targets, train_preds > best_thresholds, beta=2, average='samples')))
 
+print(best_thresholds)
+
 
 # file = open(path_valid,mode="rb")
 # preds, targets = cPickle.load(file)

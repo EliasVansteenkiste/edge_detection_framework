@@ -10,6 +10,9 @@ with open('SETTINGS.json') as data_file:
 METADATA_PATH = paths["METADATA_PATH"]
 utils.check_data_paths(METADATA_PATH)
 
+PREDICTIONS_PATH = paths["PREDICTIONS_PATH"]
+utils.check_data_paths(METADATA_PATH)
+
 DATA_PATH = paths["DATA_PATH"]
 utils.check_data_paths(DATA_PATH)
 
