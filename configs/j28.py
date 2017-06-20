@@ -15,6 +15,7 @@ import pathfinder
 import utils
 import app
 import nn_planet
+import tta
 
 restart_from_save = None
 rng = np.random.RandomState(42)
@@ -84,6 +85,15 @@ train_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     rng=rng,
                                                     full_batch=True, random=True, infinite=True)
 
+train_data_iterator2 = data_iterators.DataGenerator(dataset='train-jpg',
+                                                    batch_size=chunk_size,
+                                                    img_ids = train_ids,
+                                                    p_transform=p_transform,
+                                                    data_prep_fun = data_prep_function_train,
+                                                    label_prep_fun = label_prep_function,
+                                                    rng=rng,
+                                                    full_batch=False, random=False, infinite=False)
+
 feat_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     batch_size=chunk_size,
                                                     img_ids = all_ids,
@@ -101,6 +111,18 @@ valid_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     label_prep_fun = label_prep_function,
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
+
+
+tta = tta.LosslessTTA(p_augmentation)
+tta_valid_data_iterator = data_iterators.TTADataGenerator(dataset='train-jpg',
+                                                    tta = tta,
+                                                    img_ids = valid_ids,
+                                                    p_transform=p_transform,
+                                                    data_prep_fun = data_prep_function_valid,
+                                                    label_prep_fun = label_prep_function,
+                                                    rng=rng,
+                                                    full_batch=False, random=False, infinite=False)
+
 
 test_data_iterator = data_iterators.DataGenerator(dataset='test-jpg',
                                                     batch_size=chunk_size,

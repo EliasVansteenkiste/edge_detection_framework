@@ -7,6 +7,7 @@ from functools import partial
 import lasagne.layers.dnn as dnn
 import lasagne
 import theano.tensor as T
+from PIL import Image
 
 import data_transforms
 import data_iterators
@@ -20,9 +21,8 @@ rng = np.random.RandomState(42)
 
 # transformations
 p_transform = {'patch_size': (256, 256),
-               'channels': 4,
-               'n_labels': 1,
-               'label_id': 16}
+               'channels': 3,
+               'n_labels': 17}
 
 
 #only lossless augmentations
@@ -35,6 +35,7 @@ p_augmentation = {
 
 # data preparation function
 def data_prep_function_train(x, p_transform=p_transform, p_augmentation=p_augmentation, **kwargs):
+    x = x.convert('RGB')
     x = np.array(x)
     x = np.swapaxes(x,0,2)
     x = x / 255.
@@ -43,6 +44,7 @@ def data_prep_function_train(x, p_transform=p_transform, p_augmentation=p_augmen
     return x
 
 def data_prep_function_valid(x, p_transform=p_transform, **kwargs):
+    x = x.convert('RGB')
     x = np.array(x)
     x = np.swapaxes(x,0,2)
     x = x / 255.
@@ -50,15 +52,13 @@ def data_prep_function_valid(x, p_transform=p_transform, **kwargs):
     return x
 
 def label_prep_function(label):
-    return label[p_transform['label_id']]
+    return label
 
 
 # data iterators
-# 0.18308259
 batch_size = 32
 nbatches_chunk = 1
 chunk_size = batch_size * nbatches_chunk
-dprint batch_size
 
 folds = app.make_stratified_split(no_folds=5)
 print len(folds)
@@ -100,7 +100,7 @@ valid_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     data_prep_fun = data_prep_function_valid,
                                                     label_prep_fun = label_prep_function,
                                                     rng=rng,
-                                                    full_batch=True, random=False, infinite=False)
+                                                    full_batch=False, random=False, infinite=False)
 
 test_data_iterator = data_iterators.DataGenerator(dataset='test-jpg',
                                                     batch_size=chunk_size,
@@ -119,8 +119,6 @@ test2_data_iterator = data_iterators.DataGenerator(dataset='test2-jpg',
                                                     label_prep_fun = label_prep_function,
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
-
-
 
 nchunks_per_epoch = train_data_iterator.nsamples / chunk_size
 max_nchunks = nchunks_per_epoch * 40
@@ -155,7 +153,7 @@ dense = partial(lasagne.layers.DenseLayer,
                 nonlinearity=lasagne.nonlinearities.very_leaky_rectify)
 
 
-def inrn_v2(lin, last_layer_nonlin = lasagne.nonlinearities.rectify):
+def inrn_v2(lin):
     n_base_filter = 32
 
     l1 = conv(lin, n_base_filter, filter_size=1)
@@ -173,7 +171,7 @@ def inrn_v2(lin, last_layer_nonlin = lasagne.nonlinearities.rectify):
 
     l = lasagne.layers.ElemwiseSumLayer([l, lin])
 
-    l = lasagne.layers.NonlinearityLayer(l, nonlinearity= last_layer_nonlin)
+    l = lasagne.layers.NonlinearityLayer(l, nonlinearity=lasagne.nonlinearities.rectify)
 
     return l
 
@@ -211,9 +209,9 @@ def feat_red(lin):
     return l
 
 
-def build_model():
-    l_in = nn.layers.InputLayer((None, p_transform['channels'],) + p_transform['patch_size']) 
-    l_target = nn.layers.InputLayer((None,))
+def build_model(l_in=None):
+    l_in = nn.layers.InputLayer((None, p_transform['channels'],) + p_transform['patch_size']) if l_in is None else l_in
+    l_target = nn.layers.InputLayer((None,p_transform['n_labels']))
 
     l = conv(l_in, 64)
 
@@ -226,88 +224,63 @@ def build_model():
     l = inrn_v2_red(l)
     l = inrn_v2(l)
 
-    # l = inrn_v2_red(l)
-    # l = inrn_v2(l)
+    l = inrn_v2_red(l)
+    l = inrn_v2(l)
 
-    # l = inrn_v2_red(l)
-    # l = inrn_v2(l)
-
-    l = drop(l)
-    l = nn.layers.GlobalPoolLayer(l)
-
-    l_neck = nn.layers.NonlinearityLayer(l, nonlinearity=nn.nonlinearities.sigmoid)
-    
-    l_first_half = nn.layers.SliceLayer(l_neck, indices=slice(0,batch_size/2), axis=0)
-    l_second_half = nn.layers.SliceLayer(l_neck, indices=slice(batch_size/2,batch_size),axis=0)
-    
-    l_l1_norm = nn_planet.L1NormLayer(l_first_half, l_second_half)
+    l = inrn_v2_red(l)
+    l = inrn_v2(l)
 
 
-    l_out = nn.layers.DenseLayer(l_l1_norm, num_units=1,
+    l_1q = nn.layers.SliceLayer(l, indices=slice(0,l.output_shape[1]/4), axis=1)
+    l_2q = nn.layers.SliceLayer(l, indices=slice(l.output_shape[1]/4,l.output_shape[1]/2),axis=1)
+    l_3q = nn.layers.SliceLayer(l, indices=slice(l.output_shape[1]/2,l.output_shape[1]*3/4),axis=1)
+    l_4q = nn.layers.SliceLayer(l, indices=slice(l.output_shape[1]*3/4,l.output_shape[1]),axis=1)
+
+    l_1q = nn.layers.GlobalPoolLayer(l_1q, pool_function=T.mean)
+    l_2q = nn.layers.GlobalPoolLayer(l_2q, pool_function=T.max)
+    l_3q = nn.layers.GlobalPoolLayer(l_3q, pool_function=T.var)
+    l_4q = nn.layers.FeaturePoolLayer(l_4q, pool_size=64, pool_function=T.max)
+    l_4q = nn.layers.flatten(l_4q)
+
+    l_feat = nn.layers.ConcatLayer([l_1q, l_2q, l_3q, l_4q])
+    l_feat = drop(l_feat, p=0.5)
+
+
+    l = nn.layers.DenseLayer(l_feat, num_units=p_transform['n_labels'],
                                  W=nn.init.Orthogonal(),
                                  b=nn.init.Constant(0.5),
-                                 nonlinearity=nn.nonlinearities.sigmoid)
+                                 nonlinearity=nn.nonlinearities.identity)
 
 
+    l_weather = nn.layers.SliceLayer(l, indices=slice(0,4), axis=-1)
+    l_weather = nn.layers.NonlinearityLayer(l_weather, nonlinearity=nn.nonlinearities.softmax)
 
-    return namedtuple('Model', ['l_in', 'l_out', 'l_neck', 'l_target'])(l_in, l_out, l_neck, l_target)
+    l_other = nn_planet.MajorExclusivityLayer(l, idx_major=0)
+    l_other = nn.layers.SliceLayer(l_other, indices=slice(4,None), axis=-1)
+
+    l_out = nn.layers.ConcatLayer([l_weather, l_other], axis=-1)
+
+    return namedtuple('Model', ['l_in', 'l_out', 'l_target', 'l_feat'])(l_in, l_out, l_target, l_feat)
 
 
 def build_objective(model, deterministic=False, epsilon=1.e-7):
     predictions = T.flatten(nn.layers.get_output(model.l_out, deterministic=deterministic))
     targets = T.flatten(nn.layers.get_output(model.l_target))
-    targets = T.eq(targets[:batch_size/2],targets[batch_size/2:])
-    targets = T.cast(targets,'float32')
     preds = T.clip(predictions, epsilon, 1.-epsilon)
     #logs = [-T.log(preds), -T.log(1-preds)]
-    wbce = - targets * T.log(preds) - 3 * (1-targets)*T.log(1-preds)    
+    weighted_bce = - 5 * targets * T.log(preds) - (1-targets)*T.log(1-preds)    
     reg = nn.regularization.l2(predictions)                                                                                                                                                                                       
     weight_decay=0.00004
-    return T.mean(wbce) 
+    return T.mean(weighted_bce) + weight_decay * reg 
 
 def build_objective2(model, deterministic=False, epsilon=1.e-7):
     predictions = T.flatten(nn.layers.get_output(model.l_out, deterministic=deterministic))
     targets = T.flatten(nn.layers.get_output(model.l_target))
-    targets = T.eq(targets[:batch_size/2],targets[batch_size/2:])
-    targets = T.cast(targets,'float32')
-    #logs = [-T.log(preds), -T.log(1-preds)]
-    mse = (predictions-targets)**2    
-    # reg = nn.regularization.l2(predictions)                                                                                                                                                                                       
-    # weight_decay=0.00004
-    return T.mean(mse) #+ weight_decay * reg 
-
-
+    preds = T.clip(predictions, epsilon, 1.-epsilon)
+    return T.mean(nn.objectives.binary_crossentropy(preds, targets))
 
 def score(gts, preds, epsilon=1.e-11):
-    preds = np.vstack(preds)
-    preds = preds.flatten()
-    gts = np.vstack(gts)
-    gts = np.int32(gts)
-
-    gt  = gts > 0.5
-    gt = gt.flatten()
-    non_gt = gts < 0.5
-    non_gt = non_gt.flatten()
-
-    assert(gts.shape[0]%2==0)
-    n_half = gts.shape[0]/2
-    targets = np.equal(gt[:n_half], gt[n_half:])
-    non_targets = np.logical_not(targets)
-
-    preds = preds > 0.5
-
-    ps = np.sum(targets)
-    ns = np.sum(non_targets)
-    # print 
-    # print targets
-    # print preds
-
-    tp = np.sum(np.logical_and(preds,targets))
-    fp = np.sum(preds[non_targets])
-    fn = np.sum(targets[np.logical_not(preds)])
-    tn = np.sum(non_targets[np.logical_not(preds)])
-
-    return [ps, ns, 5.*tp/(5*tp+4*fn+fp+epsilon), tp, fp, fn, tn]
+    return app.f2_score_arr(gts, preds)
 
 test_score = score
 

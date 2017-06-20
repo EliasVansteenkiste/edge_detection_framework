@@ -65,14 +65,28 @@ no_augmentation_params = {
     'allow_stretch': False,
 }
 
-def lossless(x, p_aug, rng):
+def random_lossless(x, p_aug, rng):
     rot90_value = rng.choice(p_aug['rot90_values'])
+    flip = rng.choice(p_aug['flip'])
+    x = apply_lossless(x, rot90_value, flip)
+    return x
+
+def apply_lossless(x, rot90_value, flip):
     if rot90_value:
         x = np.rot90(x, k=rot90_value, axes=(1, 2))
-    flip = rng.choice(p_aug['flip'])
     if flip:
         x = np.flip(x, 1)
     return x
+
+def rescale(x,factor):
+    return skimage.transform.rescale(x,factor)
+
+def generate_all_lossless(x, p_aug):
+    augmentations = []
+    for rot90_value in p_aug['rot90_values']:
+        for flip in p_aug['flip']:
+            augmentations.append(apply_lossless(x,rot90_value,flip))
+    return np.stack(augmentations)
 
 def tiling(img, tile_shape):
     tiles = []
@@ -213,8 +227,6 @@ def _print_stats_channels(img, channel_stats, channel_data):
         print 'var', np.var(ch_data)
         channel_stats[str(ch)+'var'].append(np.var(ch_data))
 
-def rescale(x,factor):
-    return skimage.transform.rescale(x,factor)
 
 if __name__ == "__main__":
     _test_tiling()
