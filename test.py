@@ -89,12 +89,13 @@ if test:
     data_iterator = config().test_data_iterator
 elif train:
     data_iterator = config().train_data_iterator2
+elif valid:
+    data_iterator = config().valid_data_iterator
 elif feat:
     data_iterator = config().feat_data_iterator
 elif valid_tta:
     data_iterator = config().tta_valid_data_iterator
-# elif test_tta:
-#     data_iterator = config().tta_test_data_iterator
+# for test two iterators are used
 
 
 def get_preds_targs(data_iterator):

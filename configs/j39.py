@@ -291,10 +291,7 @@ def build_objective(model, deterministic=False, epsilon=1.e-7):
     #logs = [-T.log(preds), -T.log(1-preds)]
     weighted_bce = - 5 * targets * T.log(preds) - (1-targets)*T.log(1-preds)    
     weighte_ae = 5 * targets * (1-preds) + (1-targets) * preds 
-    alpha = np.ones(17, dtype='float32')
-    #setting cultivation and agriculture to zero, so that absolute error is used instead of bce
-    alpha[11] = 0 #agriculture
-    alpha[12] = 0 #cultivation
+    alpha = 0.5 * np.ones(17, dtype='float32')
     alpha = alpha[None,:]
     losses = alpha * weighted_bce + (1-alpha) * weighte_ae
     reg = nn.regularization.l2(predictions) 
