@@ -39,6 +39,7 @@ sys.stderr = sys.stdout
 
 print 'Build model'
 model = config().build_model()
+print model.l_out
 model.l_out.cuda() # move to gpu
 
 criterion = config().build_objective()
