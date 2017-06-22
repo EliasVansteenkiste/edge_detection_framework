@@ -1,5 +1,4 @@
 
-#copy of j25
 import numpy as np
 
 from collections import namedtuple
@@ -88,28 +87,28 @@ valid_ids = [x for x in valid_ids if x not in bad_ids]
 test_ids = np.arange(40669)
 test2_ids = np.arange(20522)
 
+train_paths = app.get_image_paths(train_ids = train_ids,
+                                  test_ids = test_ids, 
+                                  test2_ids = test2_ids)
 
-train_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
+valid_paths = app.get_image_paths(train_ids = valid_ids)
+
+test_paths = app.get_image_paths(test_ids = test_ids)
+test2_paths = app.get_image_paths(test2_ids = test2_ids)
+
+train_data_iterator = data_iterators.AutoEncoderDataGenerator(
                                                     batch_size=chunk_size,
-                                                    img_ids = train_ids,
+                                                    img_paths = train_paths,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_train,
                                                     label_prep_fun = label_prep_function,
                                                     rng=rng,
                                                     full_batch=True, random=True, infinite=True)
 
-feat_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
-                                                    batch_size=chunk_size,
-                                                    img_ids = all_ids,
-                                                    p_transform=p_transform,
-                                                    data_prep_fun = data_prep_function_valid,
-                                                    label_prep_fun = label_prep_function,
-                                                    rng=rng,
-                                                    full_batch=False, random=True, infinite=False)
 
-trainset_valid_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
+trainset_valid_data_iterator = data_iterators.AutoEncoderDataGenerator(
                                                     batch_size=chunk_size,
-                                                    img_ids = train_ids,
+                                                    img_paths = valid_paths,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_valid,
                                                     label_prep_fun = label_prep_function,
@@ -117,27 +116,27 @@ trainset_valid_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     full_batch=False, random=True, infinite=False)
 
 
-valid_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
+valid_data_iterator = data_iterators.AutoEncoderDataGenerator(
                                                     batch_size=chunk_size,
-                                                    img_ids = valid_ids,
+                                                    img_paths = valid_paths,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_valid,
                                                     label_prep_fun = label_prep_function,
                                                     rng=rng,
                                                     full_batch=False, random=True, infinite=False)
 
-test_data_iterator = data_iterators.DataGenerator(dataset='test-jpg',
+test_data_iterator = data_iterators.AutoEncoderDataGenerator(
                                                     batch_size=chunk_size,
-                                                    img_ids = test_ids,
+                                                    img_paths = test_paths,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_valid,
                                                     label_prep_fun = label_prep_function,
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 
-test2_data_iterator = data_iterators.DataGenerator(dataset='test2-jpg',
+test2_data_iterator = data_iterators.AutoEncoderDataGenerator(
                                                     batch_size=chunk_size,
-                                                    img_ids = test2_ids,
+                                                    img_paths = test2_paths,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_valid,
                                                     label_prep_fun = label_prep_function,
@@ -165,7 +164,7 @@ class EncoderBottleneck(nn.Module):
     expansion = 4
 
     def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
+        super(EncoderBottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
@@ -203,7 +202,7 @@ class DecoderBottleneck(nn.Module):
     expansion = 4
 
     def __init__(self, inplanes, planes, stride=1, upsample=None):
-        super(Bottleneck, self).__init__()
+        super(DecoderBottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
         self.deconv2 = nn.ConvTranspose2d(planes, planes, kernel_size=3, stride=stride,
@@ -242,7 +241,7 @@ class ResAE(nn.Module):
 
     def __init__(self, encoder_block, decoder_block, layers, num_classes=1000):
         self.inplanes = 64
-        super(MyResNet, self).__init__()
+        super(ResAE, self).__init__()
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
                                bias=False)
         self.bn1 = nn.BatchNorm2d(64)
@@ -259,7 +258,7 @@ class ResAE(nn.Module):
 
         self.avgpool = nn.AvgPool2d(7)
         self.fc_drop4 = nn.Dropout(p=0.5)
-        self.fc = nn.Linear(512 * block.expansion, p_transform["n_labels"])
+        self.fc = nn.Linear(512 * encoder_block.expansion, p_transform["n_labels"])
         
         self.fc_drop5 = nn.Dropout(p=0.5)
         self.layer5 = self._make_decoder_layer(decoder_block, 512, layers[3])
@@ -394,7 +393,7 @@ class WeightedMultiLoss(torch.nn.modules.loss._Loss):
         super(MultiLoss, self).__init__()
         self.bce_weight = bce_weight
     
-    def forward(self, pred, target, has_label):
+    def forward(self, pred, reconstruction, target, original, has_label):
         torch.nn.modules.loss._assert_no_grad(target)
 
         weighted_bce = - self.bce_weight * target * torch.log(pred + 1e-7) - (1 - target) * torch.log(1 - pred + 1e-7)
@@ -408,7 +407,7 @@ class ReconstructionError(torch.nn.modules.loss._Loss):
         super(ReconstructionError, self).__init__()
         self.power = power
 
-    def forward(self, reconstruction, original):
+    def forward(self, pred, reconstruction, target, original, has_label):
         torch.nn.modules.loss._assert_no_grad(reconstruction)
 
         reconstruction_loss = (original - reconstruction) ** self.power

@@ -67,6 +67,69 @@ class DataGenerator(object):
             if not self.infinite:
                 break
 
+class AutoEncoderDataGenerator(object):
+    def __init__(self, batch_size, img_paths, p_transform, data_prep_fun, label_prep_fun, rng,
+                 random, infinite, full_batch, **kwargs):
+
+
+        self.img_paths = img_paths
+        self.nsamples = len(img_paths)
+        self.batch_size = batch_size
+        self.p_transform = p_transform
+        self.data_prep_fun = data_prep_fun
+        self.label_prep_fun = label_prep_fun
+        self.rng = rng
+        self.random = random
+        self.infinite = infinite
+        self.full_batch = full_batch
+
+        self.labels = app.get_labels_array()
+
+    def generate(self):
+        while True:
+            rand_idxs = np.arange(len(self.img_paths))
+            if self.random:
+                self.rng.shuffle(rand_idxs)
+            for pos in xrange(0, len(rand_idxs), self.batch_size):
+                idxs_batch = rand_idxs[pos:pos + self.batch_size]
+                nb = len(idxs_batch)
+                # allocate batches
+                if self.p_transform['channels']:
+                    x_batch = np.zeros((nb,self.p_transform['channels'],) + self.p_transform['patch_size'], dtype='float32')
+                else:
+                    x_batch = np.zeros((nb,) + self.p_transform['patch_size'], dtype='float32')
+                if self.p_transform['n_labels']>1:
+                    y_batch = np.zeros((nb, self.p_transform['n_labels']), dtype='float32')
+                else:
+                    y_batch = np.zeros((nb,), dtype='float32')
+                z_batch = np.zeros((nb,), dtype='float32')
+
+                batch_ids = []
+
+                for i, idx in enumerate(idxs_batch):
+                    img_path = self.img_paths[idx]
+                    batch_ids.append(img_path)
+                    try:
+                        img = app.read_image_from_path(img_path)
+                    except Exception:
+                        print 'cannot open ', img_id
+                    x_batch[i] = self.data_prep_fun(x=img)
+                    
+                    if 'train' in img_path:
+                        z_batch[i] = 1.
+                        y_batch[i] = self.label_prep_fun(self.labels[img_id])
+
+                    #print 'i', i, 'img_id', img_id, y_batch[i]
+
+                if self.full_batch:
+                    if nb == self.batch_size:
+                        yield x_batch, y_batch, z_batch, batch_ids
+                else:
+                    yield x_batch, y_batch, z_batch, batch_ids
+
+            if not self.infinite:
+                break
+
 class SlimDataGenerator(object):
     def __init__(self, dataset, batch_size, img_ids, p_transform, data_prep_fun, label_prep_fun, rng,
                  random, infinite, full_batch, **kwargs):
