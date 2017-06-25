@@ -117,6 +117,7 @@ class AutoEncoderDataGenerator(object):
                     
                     if 'train' in img_path:
                         z_batch[i] = 1.
+                        img_id = app.get_id_from_path(img_path)
                         y_batch[i] = self.label_prep_fun(self.labels[img_id])
 
                     #print 'i', i, 'img_id', img_id, y_batch[i]

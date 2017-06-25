@@ -155,6 +155,9 @@ for chunk_idx, (x_chunk_train, y_chunk_train, z_chunk_train, id_train) in izip(c
                                       10. * config().nbatches_chunk * config().batch_size / (
                                       time.time() - losses_time_print[0])),
         print np.mean(losses_train_print), np.mean(losses_train_print2), np.mean(losses_train_print3)
+        print 'gts_train_print.shape', len(gts_train_print)
+        print 'np.vstack(preds_train_print)', np.vstack(preds_train_print).shape
+
         print 'score', config().score(gts_train_print, np.vstack(preds_train_print))
         preds_train_print = []
         gts_train_print = []

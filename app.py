@@ -60,6 +60,9 @@ def get_image_paths(train_ids = [], test_ids = [], test2_ids = []):
         image_paths.append('test-jpg/file_'+str(test2_id))
     return image_paths
 
+def get_id_from_path(img_path):
+    return int(img_path.split('_')[-1])
+
 
 def read_image(dataset, idx):
     if dataset == 'train':
