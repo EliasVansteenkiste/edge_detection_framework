@@ -105,11 +105,11 @@ for chunk_idx, (x_chunk_train, y_chunk_train, z_chunk_train, id_train) in izip(c
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
 
-
-    for gt in y_chunk_train:
-        tmp_gts.append(gt)
-        tmp_gts_train.append(gt)
-        gts_train_print.append(gt)
+    for idx, gt in enumerate(y_chunk_train):
+        if z_chunk_train[idx]:
+            tmp_gts.append(gt)
+            tmp_gts_train.append(gt)
+            gts_train_print.append(gt)
 
     # make nbatches_chunk iterations
     model.l_out.train()
@@ -122,6 +122,7 @@ for chunk_idx, (x_chunk_train, y_chunk_train, z_chunk_train, id_train) in izip(c
                                      Variable(torch.from_numpy(y_chunk_train).cuda()), \
                                      Variable(torch.from_numpy(z_chunk_train).cuda())
 
+
         # zero the parameter gradients
         optimizer.zero_grad()
 
@@ -131,12 +132,18 @@ for chunk_idx, (x_chunk_train, y_chunk_train, z_chunk_train, id_train) in izip(c
         loss2 = criterion2(preds, reconstruction, labels, inputs, has_labels)
         loss3 = criterion3(preds, reconstruction, labels, inputs, has_labels)
         loss.backward()
+        
         optimizer.step()
 
-        pr=preds.cpu().data.numpy()
-        tmp_preds.append(pr)
-        tmp_preds_train.append(pr)
-        preds_train_print.append(pr)
+        prs=preds.cpu().data.numpy()
+
+        for idx, pr in enumerate(prs):
+            if z_chunk_train[idx]:
+                tmp_preds.append(pr)
+                tmp_preds_train.append(pr)
+                preds_train_print.append(pr)
+
+
 
         loss_out = loss.cpu().data.numpy()[0]
         loss2_out = loss2.cpu().data.numpy()[0]
@@ -155,10 +162,10 @@ for chunk_idx, (x_chunk_train, y_chunk_train, z_chunk_train, id_train) in izip(c
                                       10. * config().nbatches_chunk * config().batch_size / (
                                       time.time() - losses_time_print[0])),
         print np.mean(losses_train_print), np.mean(losses_train_print2), np.mean(losses_train_print3)
-        print 'gts_train_print.shape', len(gts_train_print)
-        print 'np.vstack(preds_train_print)', np.vstack(preds_train_print).shape
+        # print 'gts_train_print.shape', len(gts_train_print)
+        # print 'np.vstack(preds_train_print)', np.vstack(preds_train_print).shape
 
-        print 'score', config().score(gts_train_print, np.vstack(preds_train_print))
+        print 'score', config().score(gts_train_print, preds_train_print)
         preds_train_print = []
         gts_train_print = []
 
@@ -212,16 +219,15 @@ for chunk_idx, (x_chunk_train, y_chunk_train, z_chunk_train, id_train) in izip(c
 
             prs = preds.cpu().data.numpy()
             
-
             tmp_losses_valid.append(loss.cpu().data.numpy()[0])
             tmp_losses_valid2.append(loss2.cpu().data.numpy()[0])
             tmp_losses_valid3.append(loss3.cpu().data.numpy()[0])
 
             for idx, gt in enumerate(y_chunk_valid):
-                if has_labels[idx]:
+                if z_chunk_valid[idx]:
                     tmp_gts_valid.append(gt)
             for idx, pr in enumerate(prs):
-                if has_labels[idx]:
+                if z_chunk_valid[idx]:
                     tmp_preds_valid.append(pr)
 
 

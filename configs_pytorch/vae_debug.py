@@ -149,7 +149,7 @@ nchunks_per_epoch = train_data_iterator.nsamples / chunk_size
 max_nchunks = nchunks_per_epoch * 60
 
 
-validate_every = int(1 * nchunks_per_epoch)
+validate_every = int(0.1 * nchunks_per_epoch)
 save_every = int(5 * nchunks_per_epoch)
 
 learning_rate_schedule = {
@@ -267,11 +267,24 @@ class ResAE(nn.Module):
         
 
         self.layer1 = self._make_encoder_layer(encoder_block, 64, layers[0])
+        self.fc_drop1 = nn.Dropout(p=0.5)
+        self.layer2 = self._make_encoder_layer(encoder_block, 128, layers[1], stride=2)
+        self.fc_drop2 = nn.Dropout(p=0.5)
+        self.layer3 = self._make_encoder_layer(encoder_block, 256, layers[2], stride=2)
+        self.fc_drop3 = nn.Dropout(p=0.5)
+        self.layer4 = self._make_encoder_layer(encoder_block, 512, layers[3], stride=2)
 
         self.avgpool = nn.AvgPool2d(7)
         self.fc_drop4 = nn.Dropout(p=0.5)
-        self.fc = nn.Linear( 256*9*9, p_transform["n_labels"])
+        self.fc = nn.Linear( 2048*1*1, p_transform["n_labels"])
         
+
+        self.fc_drop5 = nn.Dropout(p=0.5)
+        self.layer5 = self._make_decoder_layer(decoder_block, 512, layers[3], outplanes = 1024, stride=2)
+        self.fc_drop6 = nn.Dropout(p=0.5)
+        self.layer6 = self._make_decoder_layer(decoder_block, 256, layers[2], outplanes = 512, stride=2)
+        self.fc_drop7 = nn.Dropout(p=0.5)
+        self.layer7 = self._make_decoder_layer(decoder_block, 128, layers[1], outplanes = 256, stride=2)
         self.fc_drop8 = nn.Dropout(p=0.5)
         self.layer8 = self._make_decoder_layer(decoder_block, 64, layers[0], outplanes = 64, stride=1)
 
@@ -337,7 +350,7 @@ class ResAE(nn.Module):
         return nn.Sequential(*layers)
 
     
-    def forward(self, x):
+    def forward(self, x, debug=False):
         # Encoder stage
         ## initial trunk
         x = self.conv1(x)
@@ -347,19 +360,41 @@ class ResAE(nn.Module):
         x, id1 = self.maxpool(x)
 
         ## residual blocks for the encoder
-        feats = self.layer1(x)
+        x = self.layer1(x)
+        if debug: print 'after layer1', x.size()
+        x = self.fc_drop1(x)
+        x = self.layer2(x)
+        if debug: print 'after layer2', x.size()
+        x = self.fc_drop2(x)
+        x = self.layer3(x)
+        if debug: print 'after layer3', x.size()
+        x = self.fc_drop3(x)
+        feats = self.layer4(x)
+
 
 
         # Classification output
         x = self.avgpool(feats)
+        if debug: print 'after avgpool', x.size()
         x = x.view(x.size(0), -1)
+        if debug: print x.size()
         x = self.fc_drop4(x)
+        if debug: print x.size()
         x = self.fc(x)
         bc = F.sigmoid(x)
 
         # Decoder stage
         ## residual blocks for the decoder
-        x = self.fc_drop8(feats)
+        x = self.fc_drop5(feats)
+        x = self.layer5(x)
+        if debug: print 'after layer5', x.size()
+        x = self.fc_drop6(x)
+        x = self.layer6(x)
+        if debug: print 'after layer6', x.size()
+        x = self.fc_drop7(x)
+        x = self.layer7(x)
+        if debug: print 'after layer7', x.size()
+        x = self.fc_drop8(x)
         x = self.layer8(x)
 
         ## final branch, mirroring initial trunk
@@ -403,6 +438,7 @@ class WeightedMultiLoss(torch.nn.modules.loss._Loss):
         torch.nn.modules.loss._assert_no_grad(has_label)
 
         weighted_bce = - self.bce_weight * target * torch.log(pred + 1e-7) - (1 - target) * torch.log(1 - pred + 1e-7)
+        weighted_bce = has_label * torch.squeeze(torch.mean(weighted_bce, dim=1))
         weighted_bce = torch.sum(weighted_bce) / torch.sum(has_label) /p_transform['n_labels']
 
         return weighted_bce
@@ -439,7 +475,7 @@ class CombinedLoss(torch.nn.modules.loss._Loss):
 
         weighted_bce = - self.bce_weight * target * torch.log(pred + 1e-7) - (1 - target) * torch.log(1 - pred + 1e-7)
         weighted_bce = has_label * torch.squeeze(torch.mean(weighted_bce, dim=1))
-        weighted_bce = torch.sum(weighted_bce)/torch.sum(has_label)
+        weighted_bce = torch.sum(weighted_bce) / torch.sum(has_label) /p_transform['n_labels']
 
         reconstruction_loss = (original - reconstruction) **2
         reconstruction_loss = torch.mean(reconstruction_loss)
