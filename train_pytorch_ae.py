@@ -31,7 +31,7 @@ print
 # metadata
 metadata_dir = utils.get_dir_path('models', pathfinder.METADATA_PATH)
 metadata_path = metadata_dir + '/%s.pkl' % expid
-metadata_best_path = metadata_dir + '/%s-best.pkl' % expid
+
 # logs
 logs_dir = utils.get_dir_path('logs', pathfinder.METADATA_PATH)
 sys.stdout = logger.Logger(logs_dir + '/%s.log' % expid)
@@ -44,6 +44,7 @@ model.l_out.cuda() # move to gpu
 
 criterion = config().build_objective()
 criterion2 = config().build_objective2()
+criterion3 = config().build_objective3()
 
 learning_rate_schedule = config().learning_rate_schedule
 learning_rate =(learning_rate_schedule[0])
@@ -55,6 +56,8 @@ losses_eval_train = []
 losses_eval_valid = []
 losses_eval_train2 = []
 losses_eval_valid2 = []
+losses_eval_train3 = []
+losses_eval_valid3 = []
 start_chunk_idx = 0
 
 train_data_iterator = config().train_data_iterator
@@ -77,20 +80,21 @@ tmp_gts = []
 
 tmp_losses_train = []
 tmp_losses_train2 = []
+tmp_losses_train3 = []
+
 tmp_preds_train = []
 tmp_gts_train = []
 
 losses_train_print = []
 losses_train_print2 = []
+losses_train_print3 = []
+
 preds_train_print = []
 gts_train_print = []
 losses_time_print = []
 
-best_valid_f2_score = 0
-best_threshold = 0.925
-
 # use buffering.buffered_gen_threaded()
-for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, buffering.buffered_gen_threaded(
+for chunk_idx, (x_chunk_train, y_chunk_train, z_chunk_train, id_train) in izip(chunk_idxs, buffering.buffered_gen_threaded(
         train_data_iterator.generate(), buffer_size=128)):
 
     if chunk_idx in learning_rate_schedule:
@@ -114,44 +118,58 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, buff
         losses_time_print.append(time.time())
 
         # wrap them in Variable
-        inputs, labels = Variable(torch.from_numpy(x_chunk_train).cuda()), \
-                         Variable(torch.from_numpy(y_chunk_train).cuda())
+        inputs, labels, has_labels = Variable(torch.from_numpy(x_chunk_train).cuda()), \
+                                     Variable(torch.from_numpy(y_chunk_train).cuda()), \
+                                     Variable(torch.from_numpy(z_chunk_train).cuda())
 
         # zero the parameter gradients
         optimizer.zero_grad()
 
         # forward + backward + optimize
-        outputs = model.l_out(inputs)
-        loss = criterion(outputs, labels)
-        loss2 = criterion2(outputs, labels)
+        preds, reconstruction, feats = model.l_out(inputs)
+        loss = criterion(preds, reconstruction, labels, inputs, has_labels)
+        loss2 = criterion2(preds, reconstruction, labels, inputs, has_labels)
+        loss3 = criterion3(preds, reconstruction, labels, inputs, has_labels)
         loss.backward()
         optimizer.step()
 
-        pr=outputs.cpu().data.numpy()
+        pr=preds.cpu().data.numpy()
         tmp_preds.append(pr)
         tmp_preds_train.append(pr)
         preds_train_print.append(pr)
 
         loss_out = loss.cpu().data.numpy()[0]
         loss2_out = loss2.cpu().data.numpy()[0]
+        loss3_out = loss3.cpu().data.numpy()[0]
 
         tmp_losses_train.append(loss_out)
         tmp_losses_train2.append(loss2_out)
+        tmp_losses_train3.append(loss3_out)
+
         losses_train_print.append(loss_out)
         losses_train_print2.append(loss2_out)
+        losses_train_print3.append(loss3_out)
 
     if (chunk_idx + 1) % 10 == 0:
         print 'Chunk %d/%d %.1fHz' % (chunk_idx + 1, config().max_nchunks,
                                       10. * config().nbatches_chunk * config().batch_size / (
                                       time.time() - losses_time_print[0])),
-        print np.mean(losses_train_print), np.mean(losses_train_print2)
+        print np.mean(losses_train_print), np.mean(losses_train_print2), np.mean(losses_train_print3)
+        print 'gts_train_print.shape', len(gts_train_print)
+        print 'np.vstack(preds_train_print)', np.vstack(preds_train_print).shape
+
         print 'score', config().score(gts_train_print, np.vstack(preds_train_print))
         preds_train_print = []
         gts_train_print = []
+
         losses_train_print = []
         losses_time_print = []
+        
         losses_train_print2 = []
         losses_time_print2 = []
+        
+        losses_train_print3 = []
+        losses_time_print3 = []
 
     if ((chunk_idx + 1) % config().validate_every) == 0:
         print
@@ -159,12 +177,14 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, buff
         # calculate mean train loss since the last validation phase
         mean_train_loss = np.mean(tmp_losses_train)
         mean_train_loss2 = np.mean(tmp_losses_train2)
+        mean_train_loss3 = np.mean(tmp_losses_train3)
         mean_train_score = np.mean(config().score(tmp_gts_train, np.vstack(tmp_preds_train)))
-        print 'Mean train loss: %7f' % mean_train_loss, mean_train_loss2, mean_train_score
+        print 'Mean train loss: %7f' % mean_train_loss, mean_train_loss2, mean_train_loss3, mean_train_score
         losses_eval_train.append(mean_train_loss)
 
         tmp_losses_train = []
         tmp_losses_train2 = []
+        tmp_losses_train3 = []
         tmp_preds_train = []
         tmp_gts_train = []
 
@@ -172,54 +192,49 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, buff
 
         tmp_losses_valid = []
         tmp_losses_valid2 = []
+        tmp_losses_valid3 = []
         tmp_preds_valid = []
         tmp_gts_valid = []
 
         model.l_out.eval()
-        for i, (x_chunk_valid, y_chunk_valid, ids_batch) in enumerate(
+        for i, (x_chunk_valid, y_chunk_valid, z_chunk_valid, ids_batch) in enumerate(
                 buffering.buffered_gen_threaded(valid_data_iterator.generate(),
-                                                buffer_size=2)):
-            inputs, labels = Variable(torch.from_numpy(x_chunk_valid).cuda(),volatile=True), Variable(
-                torch.from_numpy(y_chunk_valid).cuda(),volatile=True)
+                                                buffer_size=128)):
+            inputs, labels, has_labels = Variable(torch.from_numpy(x_chunk_valid).cuda(),volatile=True), \
+                                         Variable(torch.from_numpy(y_chunk_valid).cuda(),volatile=True), \
+                                         Variable(torch.from_numpy(z_chunk_valid).cuda(),volatile=True)
 
-            outputs = model.l_out(inputs)
-            loss = criterion(outputs, labels)
-            loss2 = criterion2(outputs, labels)
+            preds, reconstruction, feats = model.l_out(inputs)
 
-            pr = outputs.cpu().data.numpy()
-            tmp_preds_valid.append(pr)
+            loss = criterion(preds, reconstruction, labels, inputs, has_labels)
+            loss2 = criterion2(preds, reconstruction, labels, inputs, has_labels)
+            loss3 = criterion3(preds, reconstruction, labels, inputs, has_labels)
+
+            prs = preds.cpu().data.numpy()
+            
 
             tmp_losses_valid.append(loss.cpu().data.numpy()[0])
             tmp_losses_valid2.append(loss2.cpu().data.numpy()[0])
+            tmp_losses_valid3.append(loss3.cpu().data.numpy()[0])
 
-            for gt in y_chunk_valid:
-                tmp_gts_valid.append(gt)
+            for idx, gt in enumerate(y_chunk_valid):
+                if has_labels[idx]:
+                    tmp_gts_valid.append(gt)
+            for idx, pr in enumerate(prs):
+                if has_labels[idx]:
+                    tmp_preds_valid.append(pr)
 
 
         # calculate validation loss across validation set
         valid_loss = np.mean(tmp_losses_valid)
         valid_loss2 = np.mean(tmp_losses_valid2)
-        valid_score = np.mean(config().score(tmp_gts_valid, np.vstack(tmp_preds_valid)))
-        print 'Validation loss: ', valid_loss, valid_loss2, valid_score
+        valid_loss3 = np.mean(tmp_losses_valid3)
+
+        valid_score = np.mean(config().score(tmp_gts_valid, tmp_preds_valid))
+        print 'Validation loss: ', valid_loss, valid_loss2, valid_loss3, valid_score
         losses_eval_valid.append(valid_loss)
         losses_eval_valid2.append(valid_loss2)
-
-        if valid_score > best_threshold and valid_score > best_valid_f2_score:
-            with open(metadata_best_path, 'w') as f:
-                pickle.dump({
-                    'configuration_file': config_name,
-                    'git_revision_hash': utils.get_git_revision_hash(),
-                    'experiment_id': expid,
-                    'chunks_since_start': chunk_idx,
-                    'losses_eval_train': losses_eval_train,
-                    'losses_eval_valid': losses_eval_valid,
-                    'param_values': model.l_out.state_dict(),
-                    #'optimizer_values': optimizer.state_dict(),
-                }, f, pickle.HIGHEST_PROTOCOL)
-                print '  saved to %s' % metadata_best_path
-                print
-
-            best_valid_f2_score = valid_score
+        losses_eval_valid3.append(valid_loss3)
 
         now = time.time()
         time_since_start = now - start_time

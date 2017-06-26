@@ -37,6 +37,33 @@ def read_compressed_image(dataset, idx):
             print path
         return im['arr']
 
+def read_image_from_path(path):
+    path = pathfinder.DATA_PATH + path 
+    if 'jpg' in path:
+        path = path + '.jpg'
+        im = Image.open(path)
+        return im
+    else:
+        path = path + '.npz'
+        im = utils.load_np(path)
+        if 'arr' not in im:
+            print path
+        return im['arr']
+
+def get_image_paths(train_ids = [], test_ids = [], test2_ids = []):
+    image_paths = []
+    for train_id in train_ids:
+        image_paths.append('train-jpg/train_'+str(train_id))
+    for test_id in test_ids:
+        image_paths.append('test-jpg/test_'+str(test_id))
+    for test2_id in test2_ids:
+        image_paths.append('test-jpg/file_'+str(test2_id))
+    return image_paths
+
+def get_id_from_path(img_path):
+    return int(img_path.split('_')[-1])
+
+
 def read_image(dataset, idx):
     if dataset == 'train':
         prefix = 'train-tif-v2/train_'
