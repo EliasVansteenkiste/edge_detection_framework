@@ -76,8 +76,8 @@ chunk_size = batch_size * nbatches_chunk
 
 folds = app.make_stratified_split(no_folds=5)
 print len(folds)
-train_ids = folds[0] + folds[1] + folds[2] + folds[4]
-valid_ids = folds[3]
+train_ids = folds[0] + folds[1] + folds[2] + folds[3]
+valid_ids = folds[4]
 all_ids = folds[0] + folds[1] + folds[2] + folds[3] + folds[4]
 
 bad_ids = []
@@ -107,16 +107,6 @@ feat_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     rng=rng,
                                                     full_batch=False, random=True, infinite=False)
 
-trainset_valid_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
-                                                    batch_size=chunk_size,
-                                                    img_ids = train_ids,
-                                                    p_transform=p_transform,
-                                                    data_prep_fun = data_prep_function_valid,
-                                                    label_prep_fun = label_prep_function,
-                                                    rng=rng,
-                                                    full_batch=False, random=True, infinite=False)
-
-
 valid_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     batch_size=chunk_size,
                                                     img_ids = valid_ids,
@@ -144,127 +134,37 @@ test2_data_iterator = data_iterators.DataGenerator(dataset='test2-jpg',
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 
-import tta
-tta = tta.LosslessTTA(p_augmentation)
-tta_test_data_iterator = data_iterators.TTADataGenerator(dataset='test-jpg',
-                                                    tta = tta,
-                                                    duplicate_label = False,
-                                                    img_ids = test_ids,
-                                                    p_transform=p_transform,
-                                                    data_prep_fun = data_prep_function_valid,
-                                                    label_prep_fun = label_prep_function,
-                                                    rng=rng,
-                                                    full_batch=False, random=False, infinite=False)
-
-tta_test2_data_iterator = data_iterators.TTADataGenerator(dataset='test2-jpg',
-                                                    tta = tta,
-                                                    duplicate_label = False,
-                                                    img_ids = test2_ids,
-                                                    p_transform=p_transform,
-                                                    data_prep_fun = data_prep_function_valid,
-                                                    label_prep_fun = label_prep_function,
-                                                    rng=rng,
-                                                    full_batch=False, random=False, infinite=False)
-
 nchunks_per_epoch = train_data_iterator.nsamples / chunk_size
 max_nchunks = nchunks_per_epoch * 60
 
 
 validate_every = int(1 * nchunks_per_epoch)
-save_every = int(5 * nchunks_per_epoch)
+save_every = int(10 * nchunks_per_epoch)
 
 learning_rate_schedule = {
-    0: 1e-3,
-    int(max_nchunks * 0.4): 5e-4,
-    int(max_nchunks * 0.6): 2e-4,
-    int(max_nchunks * 0.8): 1e-4,
-    int(max_nchunks * 0.9): 5e-5
+    0: 1e-1,
+    int(max_nchunks * 0.3): 3e-2,
+    int(max_nchunks * 0.6): 1e-2,
+    int(max_nchunks * 0.8): 3e-3,
+    int(max_nchunks * 0.9): 1e-3
 }
 
 # model
-class MyResNet(nn.Module):
+from collections import OrderedDict
 
-    def __init__(self, block, layers, num_classes=1000):
-        self.inplanes = 64
-        super(MyResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-                               bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.fc_drop1 = nn.Dropout(p=0.5)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.fc_drop2 = nn.Dropout(p=0.5)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.fc_drop3 = nn.Dropout(p=0.5)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
-        self.avgpool = nn.AvgPool2d(7)
-        self.fc_drop4 = nn.Dropout(p=0.5)
-        self.fc = nn.Linear(512 * block.expansion, num_classes)
 
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
 
-    def _make_layer(self, block, planes, blocks, stride=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(
-                nn.Conv2d(self.inplanes, planes * block.expansion,
-                          kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion),
-            )
-
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
-
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.maxpool(x)
-
-        x = self.layer1(x)
-        x = self.fc_drop1(x)
-        x = self.layer2(x)
-        x = self.fc_drop2(x)
-        x = self.layer3(x)
-        x = self.fc_drop3(x)
-        x = self.layer4(x)
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc_drop4(x)
-        x = self.fc(x)
-
-        return x
-
-def my_resnet50(pretrained=False, **kwargs):
-
-    model = MyResNet(torchvision.models.resnet.Bottleneck, [3, 4, 6, 3], **kwargs)
-    if pretrained:
-        model.load_state_dict(torch.utils.model_zoo.load_url(torchvision.models.resnet.model_urls['resnet50']))
-    return model
 
 
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.resnet = my_resnet50(pretrained=True)
-        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, p_transform["n_labels"])
-        self.resnet.fc.weight.data.zero_()
+        self.densenet = torchvision.models.densenet169(pretrained=True)
+        self.densenet.classifier = nn.Linear(self.densenet.classifier.in_features, p_transform["n_labels"])
+        self.densenet.classifier.weight.data.zero_()
 
     def forward(self, x):
-        x = self.resnet(x)
+        x = self.densenet(x)
         return F.sigmoid(x)
 
 
@@ -289,7 +189,7 @@ class MultiLoss(torch.nn.modules.loss._Loss):
 
 
 def build_objective():
-    return MultiLoss(5.0)
+    return MultiLoss(5)
 
 def build_objective2():
     return MultiLoss(1.0)
@@ -299,4 +199,4 @@ def score(gts, preds):
 
 # updates
 def build_updates(model, learning_rate):
-    return optim.Adam(model.parameters(), lr=learning_rate)
+    return optim.SGD(model.parameters(), lr=learning_rate,momentum=0.9,weight_decay=0.0002)

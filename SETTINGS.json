@@ -1,6 +1,7 @@
 {
   "DATA_PATH": "/data/plnt/",
-  "METADATA_PATH": "/data/metadata/plnt/",
+  "METADATA_PATH": "/data/plnt/",
+  "PREDICTIONS_PATH": "/data/plnt/predictions/",
   "SAMPLE_SUBMISSION_PATH": "/data/plnt/sample_submission_v2.csv"
 
 }

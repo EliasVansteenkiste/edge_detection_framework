@@ -16,8 +16,11 @@ def auto_make_dir(path):
         print 'Created dir', path
 
 
-def find_model_metadata(metadata_dir, config_name):
-    metadata_paths = glob.glob(metadata_dir + '/%s-*' % config_name)
+def find_model_metadata(metadata_dir, config_name,best=False):
+    if best:
+        metadata_paths = glob.glob(metadata_dir + '/%s-*-best.pkl' % config_name)
+    else:
+        metadata_paths = glob.glob(metadata_dir + '/%s-*' % config_name)
     if not metadata_paths:
         raise ValueError('No metadata files for config %s' % config_name)
     elif len(metadata_paths) > 1:

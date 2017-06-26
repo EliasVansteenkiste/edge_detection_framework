@@ -31,7 +31,7 @@ print
 # metadata
 metadata_dir = utils.get_dir_path('models', pathfinder.METADATA_PATH)
 metadata_path = metadata_dir + '/%s.pkl' % expid
-
+metadata_best_path = metadata_dir + '/%s-best.pkl' % expid
 # logs
 logs_dir = utils.get_dir_path('logs', pathfinder.METADATA_PATH)
 sys.stdout = logger.Logger(logs_dir + '/%s.log' % expid)
@@ -84,6 +84,9 @@ losses_train_print2 = []
 preds_train_print = []
 gts_train_print = []
 losses_time_print = []
+
+best_valid_f2_score = 0
+best_threshold = 0.925
 
 # use buffering.buffered_gen_threaded()
 for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, buffering.buffered_gen_threaded(
@@ -199,6 +202,23 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, buff
         print 'Validation loss: ', valid_loss, valid_loss2, valid_score
         losses_eval_valid.append(valid_loss)
         losses_eval_valid2.append(valid_loss2)
+
+        if valid_score > best_threshold and valid_score > best_valid_f2_score:
+            with open(metadata_best_path, 'w') as f:
+                pickle.dump({
+                    'configuration_file': config_name,
+                    'git_revision_hash': utils.get_git_revision_hash(),
+                    'experiment_id': expid,
+                    'chunks_since_start': chunk_idx,
+                    'losses_eval_train': losses_eval_train,
+                    'losses_eval_valid': losses_eval_valid,
+                    'param_values': model.l_out.state_dict(),
+                    #'optimizer_values': optimizer.state_dict(),
+                }, f, pickle.HIGHEST_PROTOCOL)
+                print '  saved to %s' % metadata_best_path
+                print
+
+            best_valid_f2_score = valid_score
 
         now = time.time()
         time_since_start = now - start_time

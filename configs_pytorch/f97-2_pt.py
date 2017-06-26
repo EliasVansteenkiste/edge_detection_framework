@@ -20,6 +20,7 @@ import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+import tta
 
 restart_from_save = None
 rng = np.random.RandomState(42)
@@ -51,7 +52,7 @@ def data_prep_function_train(x, p_transform=p_transform, p_augmentation=p_augmen
     x -= mean
     x /= std
     x = x.astype(np.float32)
-    x = data_transforms.lossless(x, p_augmentation, rng)
+    x = data_transforms.random_lossless(x, p_augmentation, rng)
     return x
 
 def data_prep_function_valid(x, p_transform=p_transform, **kwargs):
@@ -76,8 +77,8 @@ chunk_size = batch_size * nbatches_chunk
 
 folds = app.make_stratified_split(no_folds=5)
 print len(folds)
-train_ids = folds[0] + folds[1] + folds[2] + folds[4]
-valid_ids = folds[3]
+train_ids = folds[0] + folds[1] + folds[4] + folds[3]
+valid_ids = folds[2]
 all_ids = folds[0] + folds[1] + folds[2] + folds[3] + folds[4]
 
 bad_ids = []
@@ -144,7 +145,6 @@ test2_data_iterator = data_iterators.DataGenerator(dataset='test2-jpg',
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 
-import tta
 tta = tta.LosslessTTA(p_augmentation)
 tta_test_data_iterator = data_iterators.TTADataGenerator(dataset='test-jpg',
                                                     tta = tta,
@@ -166,19 +166,30 @@ tta_test2_data_iterator = data_iterators.TTADataGenerator(dataset='test2-jpg',
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 
+tta_valid_data_iterator = data_iterators.TTADataGenerator(dataset='train-jpg',
+                                                    tta = tta,
+                                                    duplicate_label = True,
+                                                    batch_size=chunk_size,
+                                                    img_ids = valid_ids,
+                                                    p_transform=p_transform,
+                                                    data_prep_fun = data_prep_function_valid,
+                                                    label_prep_fun = label_prep_function,
+                                                    rng=rng,
+                                                    full_batch=False, random=False, infinite=False)
+
 nchunks_per_epoch = train_data_iterator.nsamples / chunk_size
-max_nchunks = nchunks_per_epoch * 60
+max_nchunks = nchunks_per_epoch * 40
 
 
-validate_every = int(1 * nchunks_per_epoch)
-save_every = int(5 * nchunks_per_epoch)
+validate_every = int(0.5 * nchunks_per_epoch)
+save_every = int(10 * nchunks_per_epoch)
 
 learning_rate_schedule = {
-    0: 1e-3,
-    int(max_nchunks * 0.4): 5e-4,
-    int(max_nchunks * 0.6): 2e-4,
-    int(max_nchunks * 0.8): 1e-4,
-    int(max_nchunks * 0.9): 5e-5
+    0: 5e-2,
+    int(max_nchunks * 0.3): 2e-2,
+    int(max_nchunks * 0.6): 1e-2,
+    int(max_nchunks * 0.8): 3e-3,
+    int(max_nchunks * 0.9): 1e-3
 }
 
 # model
@@ -248,18 +259,20 @@ class MyResNet(nn.Module):
 
         return x
 
-def my_resnet50(pretrained=False, **kwargs):
-
-    model = MyResNet(torchvision.models.resnet.Bottleneck, [3, 4, 6, 3], **kwargs)
+def my_resnet101(pretrained=False, **kwargs):
+    """Constructs a ResNet-101 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = MyResNet(torchvision.models.resnet.Bottleneck, [3, 4, 23, 3], **kwargs)
     if pretrained:
-        model.load_state_dict(torch.utils.model_zoo.load_url(torchvision.models.resnet.model_urls['resnet50']))
+        model.load_state_dict(torch.utils.model_zoo.load_url(torchvision.models.resnet.model_urls['resnet101']))
     return model
-
 
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.resnet = my_resnet50(pretrained=True)
+        self.resnet = my_resnet101(pretrained=True)
         self.resnet.fc = nn.Linear(self.resnet.fc.in_features, p_transform["n_labels"])
         self.resnet.fc.weight.data.zero_()
 
@@ -284,8 +297,8 @@ class MultiLoss(torch.nn.modules.loss._Loss):
 
     def forward(self, input, target):
         torch.nn.modules.loss._assert_no_grad(target)
-        weighted_bce = - self.weight * target * torch.log(input + 1e-7) - (1 - target) * torch.log(1 - input + 1e-7)
-        return torch.mean(weighted_bce)
+        weighted = (self.weight*target)*(input-target)**2 +(1-target)*(input-target)**2
+        return torch.mean(weighted)
 
 
 def build_objective():
@@ -299,4 +312,4 @@ def score(gts, preds):
 
 # updates
 def build_updates(model, learning_rate):
-    return optim.Adam(model.parameters(), lr=learning_rate)
+    return optim.SGD(model.parameters(), lr=learning_rate,momentum=0.9,weight_decay=0.0002)

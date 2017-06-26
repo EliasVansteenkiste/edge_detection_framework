@@ -51,7 +51,7 @@ def data_prep_function_train(x, p_transform=p_transform, p_augmentation=p_augmen
     x -= mean
     x /= std
     x = x.astype(np.float32)
-    x = data_transforms.lossless(x, p_augmentation, rng)
+    x = data_transforms.random_lossless(x, p_augmentation, rng)
     return x
 
 def data_prep_function_valid(x, p_transform=p_transform, **kwargs):
@@ -76,8 +76,8 @@ chunk_size = batch_size * nbatches_chunk
 
 folds = app.make_stratified_split(no_folds=5)
 print len(folds)
-train_ids = folds[0] + folds[1] + folds[2] + folds[4]
-valid_ids = folds[3]
+train_ids = folds[0] + folds[1] + folds[2] + folds[3]
+valid_ids = folds[4]
 all_ids = folds[0] + folds[1] + folds[2] + folds[3] + folds[4]
 
 bad_ids = []
@@ -106,16 +106,6 @@ feat_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     label_prep_fun = label_prep_function,
                                                     rng=rng,
                                                     full_batch=False, random=True, infinite=False)
-
-trainset_valid_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
-                                                    batch_size=chunk_size,
-                                                    img_ids = train_ids,
-                                                    p_transform=p_transform,
-                                                    data_prep_fun = data_prep_function_valid,
-                                                    label_prep_fun = label_prep_function,
-                                                    rng=rng,
-                                                    full_batch=False, random=True, infinite=False)
-
 
 valid_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     batch_size=chunk_size,
@@ -167,104 +157,88 @@ tta_test2_data_iterator = data_iterators.TTADataGenerator(dataset='test2-jpg',
                                                     full_batch=False, random=False, infinite=False)
 
 nchunks_per_epoch = train_data_iterator.nsamples / chunk_size
-max_nchunks = nchunks_per_epoch * 60
+max_nchunks = nchunks_per_epoch * 40
 
 
 validate_every = int(1 * nchunks_per_epoch)
-save_every = int(5 * nchunks_per_epoch)
+save_every = int(10 * nchunks_per_epoch)
 
 learning_rate_schedule = {
-    0: 1e-3,
-    int(max_nchunks * 0.4): 5e-4,
-    int(max_nchunks * 0.6): 2e-4,
-    int(max_nchunks * 0.8): 1e-4,
-    int(max_nchunks * 0.9): 5e-5
+    0: 5e-2,
+    int(max_nchunks * 0.3): 2e-2,
+    int(max_nchunks * 0.6): 1e-2,
+    int(max_nchunks * 0.8): 3e-3,
+    int(max_nchunks * 0.9): 1e-3
 }
 
 # model
-class MyResNet(nn.Module):
+from collections import OrderedDict
+class MyDenseNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000):
-        self.inplanes = 64
-        super(MyResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-                               bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.fc_drop1 = nn.Dropout(p=0.5)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.fc_drop2 = nn.Dropout(p=0.5)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.fc_drop3 = nn.Dropout(p=0.5)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
-        self.avgpool = nn.AvgPool2d(7)
-        self.fc_drop4 = nn.Dropout(p=0.5)
-        self.fc = nn.Linear(512 * block.expansion, num_classes)
+    def __init__(self, growth_rate=32, block_config=(6, 12, 24, 16),
+                 num_init_features=64, bn_size=4, drop_rate=0, num_classes=1000):
 
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
+        super(MyDenseNet, self).__init__()
 
-    def _make_layer(self, block, planes, blocks, stride=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(
-                nn.Conv2d(self.inplanes, planes * block.expansion,
-                          kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion),
-            )
+        # First convolution
+        self.features = nn.Sequential(OrderedDict([
+            ('conv0', nn.Conv2d(3, num_init_features, kernel_size=7, stride=2, padding=3, bias=False)),
+            ('norm0', nn.BatchNorm2d(num_init_features)),
+            ('relu0', nn.ReLU(inplace=True)),
+            ('pool0', nn.MaxPool2d(kernel_size=3, stride=2, padding=1)),
+        ]))
 
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
+        # Each denseblock
+        num_features = num_init_features
+        self.blocks = []
+        final_num_features = 0
+        for i, num_layers in enumerate(block_config):
+            block = torchvision.models.densenet._DenseBlock(num_layers=num_layers, num_input_features=num_features,
+                                bn_size=bn_size, growth_rate=growth_rate, drop_rate=drop_rate)
+            self.features.add_module('denseblock%d' % (i + 1), block)
+            self.blocks.append(block)
+            num_features = num_features + num_layers * growth_rate
+            if i != len(block_config) - 1:
+                trans = torchvision.models.densenet._Transition(num_input_features=num_features, num_output_features=num_features // 2)
+                self.features.add_module('transition%d' % (i + 1), trans)
+                num_features = num_features // 2
 
-        return nn.Sequential(*layers)
+        # Final batch norm
+        self.features.add_module('norm5', nn.BatchNorm2d(num_features))
+        # self.classifier_drop = nn.Dropout(p=0.75)
+        # Linear layer
+        self.classifier = nn.Linear(num_features, num_classes)
 
     def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.maxpool(x)
+        features = self.features(x)
+        out = F.relu(features, inplace=True)
+        #out = self.classifier_drop(out)
+        out = F.avg_pool2d(out, kernel_size=7).view(features.size(0), -1)
+        out = self.classifier(out)
+        return out
 
-        x = self.layer1(x)
-        x = self.fc_drop1(x)
-        x = self.layer2(x)
-        x = self.fc_drop2(x)
-        x = self.layer3(x)
-        x = self.fc_drop3(x)
-        x = self.layer4(x)
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc_drop4(x)
-        x = self.fc(x)
 
-        return x
-
-def my_resnet50(pretrained=False, **kwargs):
-
-    model = MyResNet(torchvision.models.resnet.Bottleneck, [3, 4, 6, 3], **kwargs)
+def my_densenet121(pretrained=False, **kwargs):
+    r"""Densenet-121 model from
+    `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = MyDenseNet(num_init_features=64, growth_rate=32, block_config=(6, 12, 24, 16))
     if pretrained:
-        model.load_state_dict(torch.utils.model_zoo.load_url(torchvision.models.resnet.model_urls['resnet50']))
+        model.load_state_dict(torch.utils.model_zoo.load_url(torchvision.models.densenet.model_urls['densenet121']))
     return model
 
 
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.resnet = my_resnet50(pretrained=True)
-        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, p_transform["n_labels"])
-        self.resnet.fc.weight.data.zero_()
+        self.densenet = my_densenet121(pretrained=True)
+        self.densenet.classifier = nn.Linear(self.densenet.classifier.in_features, p_transform["n_labels"])
+        self.densenet.classifier.weight.data.zero_()
 
     def forward(self, x):
-        x = self.resnet(x)
+        x = self.densenet(x)
         return F.sigmoid(x)
 
 
@@ -284,8 +258,11 @@ class MultiLoss(torch.nn.modules.loss._Loss):
 
     def forward(self, input, target):
         torch.nn.modules.loss._assert_no_grad(target)
-        weighted_bce = - self.weight * target * torch.log(input + 1e-7) - (1 - target) * torch.log(1 - input + 1e-7)
-        return torch.mean(weighted_bce)
+
+
+        weighted = (self.weight*target)*(input-target)**2 +(1-target)*(input-target)**2
+
+        return torch.mean(weighted)
 
 
 def build_objective():
@@ -299,4 +276,4 @@ def score(gts, preds):
 
 # updates
 def build_updates(model, learning_rate):
-    return optim.Adam(model.parameters(), lr=learning_rate)
+    return optim.SGD(model.parameters(), lr=learning_rate,momentum=0.9,weight_decay=0.0005)

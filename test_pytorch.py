@@ -18,33 +18,46 @@ import torch
 import os
 import cPickle
 from torch.autograd import Variable
-
+import argparse
 theano.config.warn_float64 = 'raise'
 
-if len(sys.argv) < 3:
-    sys.exit("Usage: test.py <configuration_name> <test/valid/feat/train> <dump 1/0>")
+parser = argparse.ArgumentParser(description='Evaluate dataset on trained model.')
 
-config_name = sys.argv[1]
+save_dir="../data/temp/"
+
+# word level specs
+parser.add_argument("config_name",type = str,  help="Config name")
+parser.add_argument("eval",type = str,  help="test/valid/feat/train/test_tta/valid_tta")
+parser.add_argument("--dump",type = int, default = 0, help="Should we store the predictions in raw format")
+parser.add_argument("--best",type = int, default = 0, help="Should we use the best model instead of the last model")
+args = parser.parse_args()
+
+
+config_name = args.config_name
 set_configuration('configs_pytorch', config_name)
 
 
-valid = sys.argv[2] =='valid'
-test = sys.argv[2] == 'test'
-feat = sys.argv[2] == 'feat'
-train = sys.argv[2] == 'train'
+valid = args.eval =='valid'
+test = args.eval == 'test'
+feat = args.eval == 'feat'
+train = args.eval == 'train'
+valid_tta = args.eval == 'valid_tta'
+test_tta = args.eval == 'test_tta'
 
-dump = False
-if len(sys.argv) == 4:
-    if sys.argv[3]=="1":
-        dump=True
+dump = args.dump
+
+best = args.best
 
 
 # metadata
 metadata_dir = utils.get_dir_path('models', pathfinder.METADATA_PATH)
-metadata_path = utils.find_model_metadata(metadata_dir, config_name)
+metadata_path = utils.find_model_metadata(metadata_dir, config_name,best=best)
 
 metadata = utils.load_pkl(metadata_path)
 expid = metadata['experiment_id']
+
+if best:
+    expid+="-best"
 
 print("logs")
 # logs
@@ -58,7 +71,7 @@ outputs_path = predictions_dir + '/' + expid
 utils.auto_make_dir(outputs_path)
 
 if dump:
-    predicition_dump = os.path.join(outputs_path,expid+"_"+sys.argv[2]+"_predictions.p")
+    prediction_dump = os.path.join(outputs_path,expid+"_"+sys.argv[2]+"_predictions.p")
 
 print 'Build model'
 model = config().build_model()
@@ -104,21 +117,67 @@ def get_preds_targs(data_iterator):
 
     return preds, targs
 
+
+def get_preds_targs_tta(data_iterator):
+    print 'Data'
+    print 'n', sys.argv[2], ': %d' % data_iterator.nsamples
+
+    # validation_losses = []
+    preds = []
+    targs = []
+    ids = []
+
+    for n, (x_chunk, y_chunk, id_chunk) in enumerate(buffering.buffered_gen_threaded(data_iterator.generate())):
+        # load chunk to GPU
+        # if n == 10:
+        #    break
+        inputs, labels = Variable(torch.from_numpy(x_chunk).cuda(),volatile=True), Variable(
+            torch.from_numpy(y_chunk).cuda(),volatile=True)
+        predictions = model.l_out(inputs)
+
+        final_prediction = np.mean(predictions.cpu().data.numpy(), axis=0)
+        # avg_loss = np.mean(loss, axis=0)
+
+        # validation_losses.append(avg_loss)
+        targs.append(y_chunk[0])
+        ids.append(id_chunk)
+        preds.append(final_prediction)
+
+        if n % 1000 == 0:
+            print n, 'batches processed'
+
+    preds = np.stack(preds)
+    targs = np.stack(targs)
+    ids = np.stack(ids)
+
+    print preds.shape
+    print targs.shape
+    print ids.shape
+
+    # print 'Validation loss', np.mean(validation_losses)
+
+    return preds, targs, ids
+
 if train:
     train_it = config().trainset_valid_data_iterator
     preds, targs = get_preds_targs(train_it)
     if dump:
-        file = open(predicition_dump,"wb")
+        file = open(prediction_dump,"wb")
         cPickle.dump([preds,targs],file)
         file.close()
 
 
-if valid:
-    valid_it = config().valid_data_iterator
-    preds, targs = get_preds_targs(valid_it)
+if valid or valid_tta:
+
+    if valid:
+        valid_it = config().valid_data_iterator
+        preds, targs = get_preds_targs(valid_it)
+    elif valid_tta:
+        valid_it = config().tta_valid_data_iterator
+        preds,targs, _ = get_preds_targs_tta(valid_it)
 
     if dump:
-        file = open(predicition_dump,"wb")
+        file = open(prediction_dump,"wb")
         cPickle.dump([preds,targs],file)
         file.close()
 
@@ -176,18 +235,26 @@ if valid:
     print app.get_headers()
     print 4*np.array(fps)+np.array(fns)
 
-if test:
+if test or test_tta:
 
     imgid2pred = {}
     imgid2raw = {}
-    test_it = config().test_data_iterator
-    preds, _ = get_preds_targs(test_it)
+    if test:
+        test_it = config().test_data_iterator
+        preds, _, ids = get_preds_targs(test_it)
+    elif test_tta:
+        test_it = config().tta_test_data_iterator
+        preds, _, ids = get_preds_targs_tta(test_it)
     for i, p in enumerate(preds):
         imgid2pred['test_'+str(i)] = p > 0.5
         imgid2raw['test_' + str(i)] = p
 
-    test2_it = config().test2_data_iterator
-    preds, _ = get_preds_targs(test2_it)
+    if test:
+        test2_it = config().test2_data_iterator
+        preds, _, ids = get_preds_targs(test2_it)
+    elif test_tta:
+        test2_it = config().tta_test2_data_iterator
+        preds, _, ids = get_preds_targs_tta(test2_it)
     for i, p in enumerate(preds):
         imgid2pred['file_'+str(i)] = p > 0.5
         imgid2raw['file_' + str(i)] = p
@@ -195,13 +262,13 @@ if test:
     #do not forget argmax for weather labels
     print 'writing submission'
     submissions_dir = utils.get_dir_path('submissions', pathfinder.METADATA_PATH)
-    output_csv_file = submissions_dir + '/%s-%s.csv' % (expid, sys.argv[2])
+    output_csv_file = submissions_dir + '/%s-%s.csv' % (expid, args.eval)
     submission.write(imgid2pred, output_csv_file)
 
     predictions_dir = utils.get_dir_path('model-predictions', pathfinder.METADATA_PATH)
     outputs_path = predictions_dir + '/' + expid
     utils.auto_make_dir(outputs_path)
-    output_pickle_file = outputs_path + '/%s-%s.pkl' % (expid, sys.argv[2])
+    output_pickle_file = outputs_path + '/%s-%s.pkl' % (expid, args.eval)
     file = open(output_pickle_file,"wb")
     cPickle.dump(imgid2raw,file)
     file.close()

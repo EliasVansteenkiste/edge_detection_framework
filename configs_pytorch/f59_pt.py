@@ -20,6 +20,7 @@ import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+import tta
 
 restart_from_save = None
 rng = np.random.RandomState(42)
@@ -137,6 +138,27 @@ test_data_iterator = data_iterators.DataGenerator(dataset='test-jpg',
 
 test2_data_iterator = data_iterators.DataGenerator(dataset='test2-jpg',
                                                     batch_size=chunk_size,
+                                                    img_ids = test2_ids,
+                                                    p_transform=p_transform,
+                                                    data_prep_fun = data_prep_function_valid,
+                                                    label_prep_fun = label_prep_function,
+                                                    rng=rng,
+                                                    full_batch=False, random=False, infinite=False)
+
+tta = tta.LosslessTTA(p_augmentation)
+tta_test_data_iterator = data_iterators.TTADataGenerator(dataset='test-jpg',
+                                                    tta = tta,
+                                                    duplicate_label = False,
+                                                    img_ids = test_ids,
+                                                    p_transform=p_transform,
+                                                    data_prep_fun = data_prep_function_valid,
+                                                    label_prep_fun = label_prep_function,
+                                                    rng=rng,
+                                                    full_batch=False, random=False, infinite=False)
+
+tta_test2_data_iterator = data_iterators.TTADataGenerator(dataset='test2-jpg',
+                                                    tta = tta,
+                                                    duplicate_label = False,
                                                     img_ids = test2_ids,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_valid,
