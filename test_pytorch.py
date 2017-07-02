@@ -111,11 +111,14 @@ def get_preds_targs(data_iterator):
         if n % 50 ==0:
             print n, 'batches processed'
 
+        ids.append(id_chunk)
+
     preds = np.concatenate(preds)
     targs = np.concatenate(targs)
+    ids = np.stack(ids)
     print 'Validation loss', np.mean(validation_losses)
 
-    return preds, targs
+    return preds, targs, ids
 
 
 def get_preds_targs_tta(data_iterator):
@@ -160,10 +163,10 @@ def get_preds_targs_tta(data_iterator):
 
 if train:
     train_it = config().trainset_valid_data_iterator
-    preds, targs = get_preds_targs(train_it)
+    preds, targs, ids = get_preds_targs(train_it)
     if dump:
         file = open(prediction_dump,"wb")
-        cPickle.dump([preds,targs],file)
+        cPickle.dump([preds,targs,ids],file)
         file.close()
 
 
@@ -171,14 +174,14 @@ if valid or valid_tta:
 
     if valid:
         valid_it = config().valid_data_iterator
-        preds, targs = get_preds_targs(valid_it)
+        preds, targs, ids = get_preds_targs(valid_it)
     elif valid_tta:
         valid_it = config().tta_valid_data_iterator
-        preds,targs, _ = get_preds_targs_tta(valid_it)
+        preds, targs, ids = get_preds_targs_tta(valid_it)
 
     if dump:
         file = open(prediction_dump,"wb")
-        cPickle.dump([preds,targs],file)
+        cPickle.dump([preds,targs,ids],file)
         file.close()
 
     # weather_targs = []
