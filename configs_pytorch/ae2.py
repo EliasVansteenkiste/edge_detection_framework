@@ -93,8 +93,6 @@ train_paths = app.get_image_paths(train_ids = train_ids,
                                   test_ids = test_ids, 
                                   test2_ids = test2_ids)
 
-labeled_train_paths = app.get_image_paths(train_ids = train_ids)
-
 valid_paths = app.get_image_paths(train_ids = valid_ids)
 
 test_paths = app.get_image_paths(test_ids = test_ids)
@@ -103,7 +101,6 @@ test2_paths = app.get_image_paths(test2_ids = test2_ids)
 train_data_iterator = data_iterators.AutoEncoderDataGenerator(
                                                     batch_size=chunk_size,
                                                     img_paths = train_paths,
-                                                    labeled_img_paths = labeled_train_paths,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_train,
                                                     label_prep_fun = label_prep_function,
@@ -114,7 +111,6 @@ train_data_iterator = data_iterators.AutoEncoderDataGenerator(
 trainset_valid_data_iterator = data_iterators.AutoEncoderDataGenerator(
                                                     batch_size=chunk_size,
                                                     img_paths = valid_paths,
-                                                    labeled_img_paths = valid_paths,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_valid,
                                                     label_prep_fun = label_prep_function,
@@ -125,7 +121,6 @@ trainset_valid_data_iterator = data_iterators.AutoEncoderDataGenerator(
 valid_data_iterator = data_iterators.AutoEncoderDataGenerator(
                                                     batch_size=chunk_size,
                                                     img_paths = valid_paths,
-                                                    labeled_img_paths = valid_paths,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_valid,
                                                     label_prep_fun = label_prep_function,
@@ -135,7 +130,6 @@ valid_data_iterator = data_iterators.AutoEncoderDataGenerator(
 test_data_iterator = data_iterators.AutoEncoderDataGenerator(
                                                     batch_size=chunk_size,
                                                     img_paths = test_paths,
-                                                    labeled_img_paths = [],
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_valid,
                                                     label_prep_fun = label_prep_function,
@@ -145,7 +139,6 @@ test_data_iterator = data_iterators.AutoEncoderDataGenerator(
 test2_data_iterator = data_iterators.AutoEncoderDataGenerator(
                                                     batch_size=chunk_size,
                                                     img_paths = test2_paths,
-                                                    labeled_img_paths = [],
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_valid,
                                                     label_prep_fun = label_prep_function,
@@ -446,7 +439,7 @@ class WeightedMultiLoss(torch.nn.modules.loss._Loss):
 
         weighted_bce = - self.bce_weight * target * torch.log(pred + 1e-7) - (1 - target) * torch.log(1 - pred + 1e-7)
         weighted_bce = has_label * torch.squeeze(torch.mean(weighted_bce, dim=1))
-        weighted_bce = torch.sum(weighted_bce) / torch.sum(has_label) /p_transform['n_labels']
+        weighted_bce = torch.sum(weighted_bce) / (torch.sum(has_label)*p_transform['n_labels']+0.001)
 
         return weighted_bce
 
@@ -482,7 +475,7 @@ class CombinedLoss(torch.nn.modules.loss._Loss):
 
         weighted_bce = - self.bce_weight * target * torch.log(pred + 1e-7) - (1 - target) * torch.log(1 - pred + 1e-7)
         weighted_bce = has_label * torch.squeeze(torch.mean(weighted_bce, dim=1))
-        weighted_bce = torch.sum(weighted_bce) / torch.sum(has_label) /p_transform['n_labels']
+        weighted_bce = torch.sum(weighted_bce) / (torch.sum(has_label) * p_transform['n_labels']+0.0001)
 
         reconstruction_loss = (original - reconstruction) **2
         reconstruction_loss = torch.mean(reconstruction_loss)
@@ -492,7 +485,7 @@ class CombinedLoss(torch.nn.modules.loss._Loss):
 
 
 def build_objective():
-    return CombinedLoss(bce_weight=5, alpha=.95, power=2.)
+    return CombinedLoss(bce_weight=5, alpha=.85, power=2.)
 
 def build_objective2():
     return WeightedMultiLoss(5.)

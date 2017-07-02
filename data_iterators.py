@@ -68,11 +68,12 @@ class DataGenerator(object):
                 break
 
 class AutoEncoderDataGenerator(object):
-    def __init__(self, batch_size, img_paths, p_transform, data_prep_fun, label_prep_fun, rng,
+    def __init__(self, batch_size, img_paths, labeled_img_paths, p_transform, data_prep_fun, label_prep_fun, rng,
                  random, infinite, full_batch, **kwargs):
 
 
         self.img_paths = img_paths
+        self.labeled_img_paths = labeled_img_paths
         self.nsamples = len(img_paths)
         self.batch_size = batch_size
         self.p_transform = p_transform
@@ -115,7 +116,7 @@ class AutoEncoderDataGenerator(object):
                         print 'cannot open ', img_id
                     x_batch[i] = self.data_prep_fun(x=img)
                     
-                    if 'train' in img_path:
+                    if img_path in self.labeled_img_paths:
                         z_batch[i] = 1.
                         img_id = app.get_id_from_path(img_path)
                         y_batch[i] = self.label_prep_fun(self.labels[img_id])
