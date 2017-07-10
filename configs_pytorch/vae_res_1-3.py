@@ -50,7 +50,7 @@ def data_prep_function_train(x, p_transform=p_transform, p_augmentation=p_augmen
     x -= mean
     x /= std
     x = x.astype(np.float32)
-    x = data_transforms.lossless(x, p_augmentation, rng)
+    x = data_transforms.random_lossless(x, p_augmentation, rng)
     return x
 
 def data_prep_function_valid(x, p_transform=p_transform, **kwargs):
@@ -69,7 +69,7 @@ def label_prep_function(x):
 
 
 # data iterators
-batch_size = 32
+batch_size = 16
 nbatches_chunk = 1
 chunk_size = batch_size * nbatches_chunk
 
@@ -205,8 +205,9 @@ class DecoderBottleneck(nn.Module):
         super(DecoderBottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
+        print 'planes', planes
         self.deconv2 = nn.ConvTranspose2d(planes, planes, kernel_size=3, stride=stride,
-                               output_padding=1, bias=False)
+                               padding=1, output_padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes*4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -221,7 +222,11 @@ class DecoderBottleneck(nn.Module):
         out = self.bn1(out)
         out = self.relu(out)
 
+        temp = out.cpu().data.numpy()
+        print temp.shape
         out = self.deconv2(out)
+        temp = out.cpu().data.numpy()
+        print temp.shape
         out = self.bn2(out)
         out = self.relu(out)
 
@@ -270,7 +275,7 @@ class ResAE(nn.Module):
         self.layer8 = self._make_decoder_layer(decoder_block, 64, layers[0], stride=2)
 
         self.max_unpool = nn.MaxUnpool2d(kernel_size=3, stride=2, padding=1)
-        self.deconv1 = nn.ConvTranspose2d(64, 64, 7, stride=2, padding=0, output_padding=3, bias=False)
+        self.deconv1 = nn.ConvTranspose2d(64, 64, 7, stride=2, padding=2, output_padding=3, bias=False)
         self.bn2 = nn.BatchNorm2d(64)
         self.relu2 = nn.ReLU(inplace=True)
         self.c1_conv = nn.Conv2d(64, p_transform['channels'], kernel_size=1, stride=1, padding=0,
@@ -390,7 +395,7 @@ def build_model():
 class WeightedMultiLoss(torch.nn.modules.loss._Loss):
 
     def __init__(self, bce_weight):
-        super(MultiLoss, self).__init__()
+        super(WeightedMultiLoss, self).__init__()
         self.bce_weight = bce_weight
     
     def forward(self, pred, reconstruction, target, original, has_label):
@@ -418,7 +423,7 @@ class ReconstructionError(torch.nn.modules.loss._Loss):
 class CombinedLoss(torch.nn.modules.loss._Loss):
 
     def __init__(self, bce_weight, alpha=.8, power=2.):
-        super(MultiLoss, self).__init__()
+        super(CombinedLoss, self).__init__()
         self.bce_weight = bce_weight
         self.alpha = alpha
         self.power = power

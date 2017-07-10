@@ -519,7 +519,65 @@ def _test_discriminator_data_generator():
         print id_train
         print y_chunk
 
+def _test_simple_data_generator():
+        #testing data iterator 
+
+    p_transform = {'patch_size': (256, 256),
+               'channels': 4,
+               'n_labels': 1}
+
+    label_id = 4
+    rng = np.random.RandomState(42)
+
+    def data_prep_fun(x):
+        return x
+
+    def label_prep_fun(labels):
+        print labels
+        return labels[label_id]
+
+    folds = app.make_stratified_split(no_folds=5)
+    all_ids = folds[0] + folds[1] + folds[2] + folds[3] +folds[4]
+    bad_ids = []
+    img_ids = [x for x in all_ids if x not in bad_ids]
+
+    dg = SlimDataGenerator(dataset='train-jpg',
+                                batch_size=10,
+                                label_id = label_id,
+                                img_ids = all_ids,
+                                p_transform=p_transform,
+                                data_prep_fun = data_prep_fun,
+                                label_prep_fun = label_prep_fun,
+                                rng=rng, 
+                                full_batch=True, 
+                                random=False, 
+                                infinite=False)
+
+    print 'start'
+    avgs = []
+    stds = []
+
+    ch_avgs = [[],[],[],[]]
+    ch_stds = [[],[],[],[]]
+    for (x_chunk, y_chunk, id_train) in dg.generate():
+        x_chunk = np.stack(x_chunk)
+        #x_chunk = x_chunk/255.
+        avgs.append(np.mean(x_chunk))
+        stds.append(np.std(x_chunk))
+        for ch in range(4):
+            ch_avgs[ch].append(np.mean(x_chunk[:,ch]))
+            ch_stds[ch].append(np.std(x_chunk[:,ch]))
+
+    print 'avgs', np.mean(np.stack(avgs))
+    print 'stds', np.mean(np.stack(stds))
+    for ch in range(4):
+        print 'ch', str(ch)
+        print 'mean of avgs', np.mean(ch_avgs[ch])
+        print 'mean of stds', np.mean(ch_stds[ch])
+
+
+
 
 if __name__ == "__main__":
-    _test_data_generator()
+    _test_simple_data_generator()
 
