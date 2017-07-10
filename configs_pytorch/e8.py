@@ -306,7 +306,7 @@ def squeezenet1_1(**kwargs):
 class Net(nn.Module):
     def __init__(self, shape=(3,256,256)):
         super(Net, self).__init__()
-        self.squeezenet = squeezenet1_1(pretrained=True, num_classes=p_transform["n_labels"])
+        self.squeezenet = squeezenet1_1(num_classes=p_transform["n_labels"])
 
     def forward(self, x):
         x = self.squeezenet(x)
