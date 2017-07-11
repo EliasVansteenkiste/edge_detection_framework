@@ -80,7 +80,7 @@ def label_prep_function(x):
 
 
 # data iterators
-batch_size = 16
+batch_size = 192
 nbatches_chunk = 1
 chunk_size = batch_size * nbatches_chunk
 
@@ -217,6 +217,25 @@ class Fire(nn.Module):
             self.expand3x3_activation(self.expand3x3(x))
         ], 1)
 
+class FinalClassifier(nn.Module):
+
+    def __init__(self, inplanes=512, n_classes=p_transform["n_labels"]):
+        super(FinalClassifier, self).__init__()
+        self.drop = nn.Dropout(p=0.5)
+        self.final_conv = nn.Conv2d(inplanes, n_classes, kernel_size=1)
+        self.final_act = nn.ReLU(inplace=True)
+        self.pool = nn.AvgPool2d(15)
+        self.final_dense = nn.Linear(n_classes, n_classes)
+
+    def forward(self, x):
+        x = self.drop(x)
+        x = self.final_conv(x)
+        x = self.final_act(x)
+        x = self.pool(x)
+        x = x.view(x.size(0), -1)
+        x = self.final_dense(x)
+        return x
+
 
 class SqueezeNet(nn.Module):
 
@@ -257,18 +276,14 @@ class SqueezeNet(nn.Module):
                 Fire(384, 48, 192, 192),
                 Fire(384, 64, 256, 256),
                 Fire(512, 64, 256, 256),
-                nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True),
-                Fire(512, 96, 384, 384),
-                Fire(768, 96, 384, 384),
-                Fire(768, 128, 512, 512),
-                Fire(1024, 128, 512, 512),
             )
         # Final convolution is initialized differently form the rest
-        final_conv = nn.Conv2d(1024, self.num_classes, kernel_size=1)
+        final_conv = nn.Conv2d(512, self.num_classes, kernel_size=1)
         self.classifier = nn.Sequential(
             nn.Dropout(p=0.5),
             final_conv,
-            nn.AvgPool2d(7)
+            nn.ReLU(inplace=True),
+            nn.AvgPool2d(13)
         )
 
         for m in self.modules():
@@ -290,7 +305,20 @@ class SqueezeNet(nn.Module):
         return self.features(x)
 
 
-def squeezenet1_1(**kwargs):
+def squeezenet1_0(pretrained=False, **kwargs):
+    r"""SqueezeNet model architecture from the `"SqueezeNet: AlexNet-level
+    accuracy with 50x fewer parameters and <0.5MB model size"
+    <https://arxiv.org/abs/1602.07360>`_ paper.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = SqueezeNet(version=1.0, **kwargs)
+    if pretrained:
+        model.load_state_dict(torch.utils.model_zoo.load_url(torchvision.models.squeezenet.model_urls['squeezenet1_0']))
+    return model
+
+
+def squeezenet1_1(pretrained=False, **kwargs):
     r"""SqueezeNet 1.1 model from the `official SqueezeNet repo
     <https://github.com/DeepScale/SqueezeNet/tree/master/SqueezeNet_v1.1>`_.
     SqueezeNet 1.1 has 2.4x less computation and slightly fewer parameters
@@ -299,14 +327,30 @@ def squeezenet1_1(**kwargs):
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
     model = SqueezeNet(version=1.1, **kwargs)
+    if pretrained:
+        model.load_state_dict(torch.utils.model_zoo.load_url(torchvision.models.squeezenet.model_urls['squeezenet1_1']))
     return model
 
 
 
 class Net(nn.Module):
-    def __init__(self):
+    def __init__(self, shape=(3,256,256)):
         super(Net, self).__init__()
-        self.squeezenet = squeezenet1_1(num_classes=p_transform["n_labels"])
+        self.squeezenet = squeezenet1_1(pretrained=True)
+        self.n_classes = p_transform["n_labels"]
+        self.squeezenet.classifier = FinalClassifier()
+
+
+    # def final_classifier(self):
+    #     final_conv = nn.Conv2d(512, self.n_classes, kernel_size=1)
+    #     classifier = nn.Sequential(
+    #         nn.Dropout(p=0.5),
+    #         final_conv,
+    #         nn.AvgPool2d(15),
+    #         nn.Linear(self.n_classes,self.n_classes)
+    #     )
+    #     return classifier
+
 
     def forward(self, x):
         x = self.squeezenet(x)
@@ -335,7 +379,7 @@ class MultiLoss(torch.nn.modules.loss._Loss):
 
 
 def build_objective():
-    return MultiLoss(5.0)
+    return MultiLoss(4.0)
 
 def build_objective2():
     return MultiLoss(1.0)
