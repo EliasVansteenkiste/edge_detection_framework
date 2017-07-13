@@ -31,9 +31,14 @@ p_transform = {'patch_size': (256, 256),
                'n_labels': 17}
 
 
-#only lossless augmentations
 p_augmentation = {
-    'rot90_values': [0,1,2,3],
+    'zoom_range': (1, 1),
+    'rotation_range': (0, 0),
+    'shear_range': (0, 0),
+    'translation_range': (-1, 1),
+    'do_flip': True,
+    'allow_stretch': False,
+    'rot90_values': [0, 1, 2, 3],
     'flip': [0, 1]
 }
 
@@ -52,7 +57,10 @@ def data_prep_function_train(x, p_transform=p_transform, p_augmentation=p_augmen
     x -= mean
     x /= std
     x = x.astype(np.float32)
-    x = data_transforms.random_lossless(x, p_augmentation, rng)
+    pert_aug = dict((k,p_augmentation[k]) for k in ('zoom_range','rotation_range','shear_range','translation_range','do_flip','allow_stretch') if k in p_augmentation)
+    x = data_transforms.perturb(x, pert_aug, p_transform['patch_size'], rng,n_channels=p_transform["channels"])
+    losless_aug = dict((k,p_augmentation[k]) for k in ('rot90_values','flip') if k in p_augmentation)
+    x = data_transforms.random_lossless(x, losless_aug, rng)
     return x
 
 def data_prep_function_valid(x, p_transform=p_transform, **kwargs):
@@ -71,7 +79,7 @@ def label_prep_function(x):
 
 
 # data iterators
-batch_size = 16
+batch_size = 18
 nbatches_chunk = 1
 chunk_size = batch_size * nbatches_chunk
 
@@ -89,12 +97,8 @@ valid_ids = [x for x in valid_ids if x not in bad_ids]
 test_ids = np.arange(40669)
 test2_ids = np.arange(20522)
 
-train_paths = app.get_image_paths(train_ids = train_ids,
-                                  test_ids = test_ids, 
-                                  test2_ids = test2_ids)
-
+train_paths = app.get_image_paths(train_ids = (train_ids + valid_ids))
 labeled_train_paths = app.get_image_paths(train_ids = train_ids)
-
 valid_paths = app.get_image_paths(train_ids = valid_ids)
 
 test_paths = app.get_image_paths(test_ids = test_ids)
@@ -113,8 +117,8 @@ train_data_iterator = data_iterators.AutoEncoderDataGenerator(
 
 trainset_valid_data_iterator = data_iterators.AutoEncoderDataGenerator(
                                                     batch_size=chunk_size,
-                                                    img_paths = valid_paths,
-                                                    labeled_img_paths = valid_paths,
+                                                    img_paths = train_paths,
+                                                    labeled_img_paths = labeled_train_paths,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_valid,
                                                     label_prep_fun = label_prep_function,
@@ -135,7 +139,7 @@ valid_data_iterator = data_iterators.AutoEncoderDataGenerator(
 test_data_iterator = data_iterators.AutoEncoderDataGenerator(
                                                     batch_size=chunk_size,
                                                     img_paths = test_paths,
-                                                    labeled_img_paths = [],
+                                                    labeled_img_paths = test_paths,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_valid,
                                                     label_prep_fun = label_prep_function,
@@ -145,7 +149,7 @@ test_data_iterator = data_iterators.AutoEncoderDataGenerator(
 test2_data_iterator = data_iterators.AutoEncoderDataGenerator(
                                                     batch_size=chunk_size,
                                                     img_paths = test2_paths,
-                                                    labeled_img_paths = [],
+                                                    labeled_img_paths = test2_paths,
                                                     p_transform=p_transform,
                                                     data_prep_fun = data_prep_function_valid,
                                                     label_prep_fun = label_prep_function,
@@ -156,7 +160,7 @@ nchunks_per_epoch = train_data_iterator.nsamples / chunk_size
 max_nchunks = nchunks_per_epoch * 60
 
 
-validate_every = int(1 * nchunks_per_epoch)
+validate_every = int(.5 * nchunks_per_epoch)
 save_every = int(5 * nchunks_per_epoch)
 
 learning_rate_schedule = {
@@ -433,46 +437,40 @@ def build_model():
 
 
 # loss
-class WeightedMultiLoss(torch.nn.modules.loss._Loss):
+class WeightedSQE(torch.nn.modules.loss._Loss):
 
-    def __init__(self, bce_weight):
-        super(WeightedMultiLoss, self).__init__()
-        self.bce_weight = bce_weight
-    
+    def __init__(self, weight):
+        super(WeightedSQE, self).__init__()
+        self.weight = weight
+
     def forward(self, pred, reconstruction, target, original, has_label):
-        torch.nn.modules.loss._assert_no_grad(original)
         torch.nn.modules.loss._assert_no_grad(target)
-        torch.nn.modules.loss._assert_no_grad(has_label)
 
-        weighted_bce = - self.bce_weight * target * torch.log(pred + 1e-7) - (1 - target) * torch.log(1 - pred + 1e-7)
-        weighted_bce = has_label * torch.squeeze(torch.mean(weighted_bce, dim=1))
-        weighted_bce = torch.sum(weighted_bce) / torch.sum(has_label) /p_transform['n_labels']
+        weighted_sqe = self.weight*target*(pred-target)**2 +(1-target)*(pred-target)**2
 
-        return weighted_bce
+        return torch.mean(weighted_sqe)
 
 class ReconstructionError(torch.nn.modules.loss._Loss):
 
-    def __init__(self, power=2):
+    def __init__(self):
         super(ReconstructionError, self).__init__()
-        self.power = power
 
     def forward(self, pred, reconstruction, target, original, has_label):
         torch.nn.modules.loss._assert_no_grad(original)
         torch.nn.modules.loss._assert_no_grad(target)
         torch.nn.modules.loss._assert_no_grad(has_label)
 
-        reconstruction_loss = (original - reconstruction) ** self.power
-        reconstruction_loss = torch.mean(reconstruction_loss)
+        reconstruction_sqe = (original - reconstruction)**2
+        reconstruction_sqe = torch.mean(reconstruction_sqe)
 
-        return reconstruction_loss
+        return reconstruction_sqe
 
 class CombinedLoss(torch.nn.modules.loss._Loss):
 
-    def __init__(self, bce_weight, alpha=.8, power=2.):
+    def __init__(self, weight, alpha=.8):
         super(CombinedLoss, self).__init__()
-        self.bce_weight = bce_weight
+        self.weight = weight
         self.alpha = alpha
-        self.power = power
 
 
     def forward(self, pred, reconstruction, target, original, has_label):
@@ -480,25 +478,24 @@ class CombinedLoss(torch.nn.modules.loss._Loss):
         torch.nn.modules.loss._assert_no_grad(original)
         torch.nn.modules.loss._assert_no_grad(has_label)
 
-        weighted_bce = - self.bce_weight * target * torch.log(pred + 1e-7) - (1 - target) * torch.log(1 - pred + 1e-7)
-        weighted_bce = has_label * torch.squeeze(torch.mean(weighted_bce, dim=1))
-        weighted_bce = torch.sum(weighted_bce) / torch.sum(has_label) /p_transform['n_labels']
+        weighted_sqe = self.weight*target*(pred-target)**2 +(1-target)*(pred-target)**2
+        weighted_sqe = torch.mean(weighted_sqe)
 
-        reconstruction_loss = (original - reconstruction) **2
-        reconstruction_loss = torch.mean(reconstruction_loss)
+        reconstruction_sqe = (original - reconstruction)**2
+        reconstruction_sqe = torch.mean(reconstruction_sqe)
 
-        loss = self.alpha * weighted_bce  + (1-self.alpha) * reconstruction_loss
+        loss = self.alpha * weighted_sqe  + (1-self.alpha) * reconstruction_sqe
         return loss
 
 
 def build_objective():
-    return CombinedLoss(bce_weight=5, alpha=.95, power=2.)
+    return CombinedLoss(weight=5., alpha=.95)
 
 def build_objective2():
-    return WeightedMultiLoss(5.)
+    return WeightedSQE(5.)
 
 def build_objective3():
-    return ReconstructionError(2.)
+    return ReconstructionError()
 
 def score(gts, preds):
     return app.f2_score_arr(gts, preds)
