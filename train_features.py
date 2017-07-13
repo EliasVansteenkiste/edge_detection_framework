@@ -14,96 +14,13 @@ seed = 31145
 rng = np.random.RandomState(141289)
 
 
-def load_features(path):
-    img_ids = []
-    filelist = os.listdir(path)
-    for f in filelist:
-        img_id = int(f.split('.')[0])
-        img_ids.append(img_id)
-    max_id = max(img_ids)
 
-    test_features = utils.load_np(path + '/' + filelist[0])['features']
-    features = np.zeros((max_id + 1,) + test_features.shape)
-    for f in filelist:
-        img_id = int(f.split('.')[0])
-        file = utils.load_np(features_path + '/' + f)
-        features[img_id] = file['features']
-    return features
-
-
-def learn_weather_class(train_ids, valid_ids, features, labels):
+def learn_bin_class(train_ids, valid_ids, features, f_idx, labels):
     train_X = features[train_ids]
     valid_X = features[valid_ids]
 
-    weather_labels = labels[:, :4]
-    print weather_labels[:10]
-    weather_class = np.argmax(weather_labels, axis=1)
-    print weather_class[:10]
-
-    train_Y = weather_class[train_ids]
-    valid_Y = weather_class[valid_ids]
-    y_valid_true = weather_labels[valid_ids]
-
-    xg_train = xgb.DMatrix(train_X, label=train_Y)
-    xg_valid = xgb.DMatrix(valid_X, label=valid_Y)
-    # setup parameters for xgboost
-    param = {}
-    # use softmax multi-class classification
-    param['objective'] = 'multi:softmax'
-    # scale weight of positive examples
-    param['eta'] = 0.1
-    param['max_depth'] = 8
-    param['n_estimators'] = 2000
-    param['learning_rate'] = 0.1
-    param['min_child_weight'] = 1
-    param['gamma'] = 0
-    param['subsample'] = 0.8
-    param['colsample_bytree'] = 0.8
-    param['scale_pos_weight'] = 1
-    # param['silent'] = 1
-    param['nthread'] = 10
-    param['num_class'] = 4
-
-    watchlist = [(xg_train, 'train'), (xg_valid, 'valid')]
-    num_round = 60
-    # bst = xgb.train(param, xg_train, num_round, watchlist );
-    # # get prediction
-    # pred = bst.predict( xg_valid );
-    # print ('predicting, classification error=%f' % (sum( int(pred[i]) != valid_Y[i] for i in range(len(valid_Y))) / float(len(valid_Y)) ))
-
-    # do the same thing again, but output probabilities
-    param['objective'] = 'multi:softprob'
-    bst = xgb.train(param, xg_train, num_round, watchlist);
-    # Note: this convention has been changed since xgboost-unity
-    # get prediction, this is in 1D array, need reshape to (ndata, nclass)
-    yprob = bst.predict(xg_valid).reshape(valid_Y.shape[0], 4)
-    ylabel = np.argmax(yprob, axis=1)
-
-    print 'f2_score', app.f2_score_arr(y_valid_true, yprob)
-    y_argm = np.argmax(yprob, axis=1)
-    y_max_pred = np.zeros_like(yprob)
-    y_max_pred[np.arange(y_argm.shape[0]), y_argm] = 1
-    print 'f2_score', app.f2_score_arr(y_valid_true, y_max_pred)
-    print ('predicting, classification error=%f' % (
-    sum(int(ylabel[i]) != valid_Y[i] for i in range(len(valid_Y))) / float(len(valid_Y))))
-
-
-def learn_bin_class(train_ids, valid_ids, features, f_idx, labels, augmentations=False):
-
-    if augmentations:
-        train_X = np.vstack([features[i][train_ids] for i in range(len(features))])
-        valid_X = np.vstack([features[i][valid_ids] for i in range(len(features))])
-
-        train_Y = np.concatenate([labels[train_ids, f_idx] for _ in range(len(features))])
-        valid_Y = np.concatenate([labels[valid_ids, f_idx] for _ in range(len(features))])
-
-    else:
-
-        train_X = features[train_ids]
-        valid_X = features[valid_ids]
-
-        train_Y = labels[train_ids, f_idx]
-        valid_Y = labels[valid_ids, f_idx]
+    train_Y = labels[train_ids, f_idx]
+    valid_Y = labels[valid_ids, f_idx]
 
     xg_train = xgb.DMatrix(train_X, label=train_Y)
     xg_valid = xgb.DMatrix(valid_X, label=valid_Y)
@@ -113,7 +30,7 @@ def learn_bin_class(train_ids, valid_ids, features, f_idx, labels, augmentations
     param['objective'] = 'binary:logistic'
     # scale weight of positive examples
     param['eta'] = 0.05
-    param['max_depth'] = 4
+    param['max_depth'] = 2
     param['n_estimators'] = 100
     #param['learning_rate'] = 0.1
     param['min_child_weight'] = 1
@@ -122,7 +39,7 @@ def learn_bin_class(train_ids, valid_ids, features, f_idx, labels, augmentations
     param['lambda_bias'] = 0  # L2 regularization term on bias, default 0
     param['gamma'] = 0.5
     param['subsample']= 0.3
-    param['colsample_bytree'] = 0.5
+    param['colsample_bytree'] = 0.95
     param['scale_pos_weight'] = 1
     param['silent'] = 1
     param['nthread'] = 10
@@ -148,7 +65,7 @@ def learn_bin_class(train_ids, valid_ids, features, f_idx, labels, augmentations
     return yprob_train, yprob_valid, bst
 
 
-def build_joint_prob_vector(config_names):
+def build_joint_feature_vector(config_names):
     id_pred = {}
     id_target = {}
 
@@ -177,35 +94,6 @@ def build_joint_prob_vector(config_names):
         id_pred[k] = np.concatenate(v)
 
     return id_pred, id_target
-
-def build_joint_feature_vector(config_names):
-    folds = app.make_stratified_split(no_folds=5)
-    valid_ids = folds[4]
-
-    labels = app.get_labels_array()
-
-    targets = dict(zip(valid_ids,labels[valid_ids]))
-
-    vectors = {}
-
-
-    for valid_id in valid_ids:
-        augmentations = []
-        for aug in range(8):
-            predictions = []
-            for config_name in config_names:
-                file = open(os.path.join("/data/plnt/model-predictions/fgodin/",
-                                         config_name,"features",
-                                         str(valid_id)+"_"+str(aug)+".npy"),"rb")
-                predictions.append(np.load(file))
-                file.close()
-            augmentations.append(np.concatenate(predictions))
-
-        vectors[valid_id] = augmentations
-
-
-    return vectors,targets
-
 
 
 def make_stratified_split(only_labels, no_folds=5, verbose=False, version=1):
@@ -249,7 +137,7 @@ def make_stratified_split(only_labels, no_folds=5, verbose=False, version=1):
     return folds
 
 config_names = [
-    "f87_pt-20170712-100723-best",
+    "f87_pt-20170623-114248-best",
     #                 "f87-0_pt-20170625-085603-best",
     #                 "f87-1_pt-20170625-085758-best",
     #                 "f87-2_pt-20170625-091432-best",
@@ -261,13 +149,13 @@ config_names = [
 
     #                 "f92-2_pt-20170625-023812-best",
     #                 "f92-3_pt-20170625-020307-best",
-    # "f95_pt-20170624-035637-best",
+    "f95_pt-20170624-035637-best",
     # "f95-0_pt-20170709-154037-best",
     # "f95-1_pt-20170709-214044-best",
     # "f95-2_pt-20170709-131550-best",
     # "f95-3_pt-20170709-184153-best",
     #
-    # "f97_pt-20170624-002331-best",
+    "f97_pt-20170624-002331-best",
     #                 "f97-0_pt-20170624-180609-best",
     #                 "f97-1_pt-20170624-180713-best",
     #                 "f97-2_pt-20170624-180825-best",
@@ -283,30 +171,17 @@ config_names = [
 x_dict, y_dict = build_joint_feature_vector(config_names)
 
 # just to be sure
-
+x = np.empty((len(x_dict),17*len(config_names)))
 y = np.empty((len(x_dict),17),dtype=np.int)
 
-
-i = 0
-augmentations = [np.empty((len(x_dict),3712)) for _ in range(8)]
-
-for key, vectors in x_dict.items():
-
-    for j,vector in enumerate(vectors):
-        augmentations[j][i] = vector
-
-
-    y[i] = y_dict[key]
-
-    i+=1
+ids = x_dict.keys()
+for i in range(len(ids)):
+    x[i] = x_dict[ids[i]]
+    y[i] = y_dict[ids[i]]
 
 
 # split deep learning validation set in 2 new sets for training xgboost
 folds = make_stratified_split(y,no_folds=3)
-
-
-
-
 
 
 threshold = 0.24
@@ -323,18 +198,17 @@ for fold_id in range(len(folds)):
         if i != fold_id:
             train_ids.extend(folds[i])
     valid_ids = folds[fold_id]
-    train_preds = np.empty((len(train_ids)*8,y.shape[1]),dtype=np.float32)
-    valid_preds = np.empty((len(valid_ids)*8,y.shape[1]),dtype=np.float32)
-    train_targets = np.vstack([y[train_ids] for _ in range(8)])
-    valid_targets = np.vstack([y[valid_ids] for _ in range(8)])
+    train_preds = np.empty((len(train_ids),y.shape[1]),dtype=np.float32)
+    valid_preds = np.empty((len(valid_ids),y.shape[1]),dtype=np.float32)
+
 
     for f_idx in range(0, 17):
         print 'f_idx', f_idx
-        train_preds[:, f_idx], valid_preds[:,f_idx], model = learn_bin_class(train_ids, valid_ids,augmentations, f_idx, y,augmentations=True)
+        train_preds[:, f_idx], valid_preds[:,f_idx], model = learn_bin_class(train_ids, valid_ids, x, f_idx, y)
         models[fold_id].append(model)
 
-    sum_f2_scores_train.append(fbeta_score(train_targets, train_preds > threshold, beta=2, average='samples'))
-    sum_f2_scores_valid.append(fbeta_score(valid_targets, valid_preds > threshold, beta=2, average='samples'))
+    sum_f2_scores_train.append(fbeta_score(y[train_ids], train_preds > threshold, beta=2, average='samples'))
+    sum_f2_scores_valid.append(fbeta_score(y[valid_ids], valid_preds > threshold, beta=2, average='samples'))
 
 print "F2 train: ", sum_f2_scores_train, np.mean(sum_f2_scores_train)
 print "F2 valid: ", sum_f2_scores_valid, np.mean(sum_f2_scores_valid)

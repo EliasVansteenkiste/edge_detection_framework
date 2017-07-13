@@ -70,7 +70,7 @@ def label_prep_function(x):
 
 
 # data iterators
-batch_size = 32
+batch_size = 16
 nbatches_chunk = 1
 chunk_size = batch_size * nbatches_chunk
 
@@ -165,7 +165,17 @@ tta_valid_data_iterator = data_iterators.TTADataGenerator(dataset='train-jpg',
                                                     data_prep_fun = data_prep_function_valid,
                                                     label_prep_fun = label_prep_function,
                                                     rng=rng,
-                                                    full_batch=False, random=True, infinite=False)
+                                                    full_batch=False, random=False, infinite=False)
+tta_train_data_iterator = data_iterators.TTADataGenerator(dataset='train-jpg',
+                                                    tta = tta,
+                                                    duplicate_label = True,
+                                                    batch_size=chunk_size,
+                                                    img_ids = train_ids,
+                                                    p_transform=p_transform,
+                                                    data_prep_fun = data_prep_function_valid,
+                                                    label_prep_fun = label_prep_function,
+                                                    rng=rng,
+                                                    full_batch=False, random=False, infinite=False)
 
 nchunks_per_epoch = train_data_iterator.nsamples / chunk_size
 max_nchunks = nchunks_per_epoch * 40
@@ -220,49 +230,44 @@ class MyDenseNet(nn.Module):
         # Linear layer
         self.classifier = nn.Linear(num_features, num_classes)
 
-    def forward(self, x,feat=False):
+    def forward(self, x):
         features = self.features(x)
-
         out = F.relu(features, inplace=True)
         out = self.classifier_drop(out)
         out = F.avg_pool2d(out, kernel_size=7).view(features.size(0), -1)
-        if feat:
-            return out
         out = self.classifier(out)
         return out
 
 
-def my_densenet121(pretrained=False, **kwargs):
-    r"""Densenet-121 model from
+def my_densenet169(pretrained=False, **kwargs):
+    r"""Densenet-169 model from
     `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = MyDenseNet(num_init_features=64, growth_rate=32, block_config=(6, 12, 24, 16))
+    model = MyDenseNet(num_init_features=64, growth_rate=32, block_config=(6, 12, 32, 32))
     if pretrained:
-        model.load_state_dict(torch.utils.model_zoo.load_url(torchvision.models.densenet.model_urls['densenet121']))
+        model.load_state_dict(torch.utils.model_zoo.load_url(torchvision.models.densenet.model_urls['densenet169']))
     return model
 
 
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.densenet = my_densenet121(pretrained=True)
+        self.densenet = my_densenet169(pretrained=True)
         self.densenet.classifier = nn.Linear(self.densenet.classifier.in_features, p_transform["n_labels"])
         self.densenet.classifier.weight.data.zero_()
 
-    def forward(self, x, feat=False):
-        if feat:
-            return self.densenet(x,feat)
-        else:
-            x = self.densenet(x)
-            return F.sigmoid(x)
+    def forward(self, x):
+        x = self.densenet(x)
+        return F.sigmoid(x)
 
 
 def build_model():
     net = Net()
 
     return namedtuple('Model', [ 'l_out'])( net )
+
 
 
 # loss

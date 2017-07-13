@@ -92,8 +92,11 @@ def save_image_compressed(dataset, idx):
     utils.savez_compressed_np(np_image, path)
     
 
-def get_labels():
-    df = pd.read_csv(pathfinder.DATA_PATH+'train.csv')
+def get_labels(version=1):
+    if version == 2:
+        df = pd.read_csv(pathfinder.DATA_PATH + 'train_v2.csv')
+    else:
+        df = pd.read_csv(pathfinder.DATA_PATH+'train.csv')
     df = pd.concat([df['image_name'], df.tags.str.get_dummies(sep=' ')], axis=1)
     cols = list(df.columns.values) #Make a list of all of the columns in the df
     weather_labels = ['clear', 'partly_cloudy', 'haze', 'cloudy']
@@ -108,23 +111,25 @@ def get_labels():
     df = df[weather_labels+rare_labels+cols] #
     return df
 
-    
 
-def get_headers():
-    df = get_labels()
+
+def get_headers(version=1):
+    df = get_labels(version)
     only_labels = df.drop(['image_name'], axis = 1, inplace = False)
     cols = list(only_labels.columns.values)
     return cols
 
-def get_labels_array():
-    df = get_labels()
+def get_labels_array(version=1):
+
+    df = get_labels(version)
+
     only_labels = df.drop(['image_name'], axis = 1, inplace = False)
     only_labels = only_labels.as_matrix()
     return only_labels
 
-def get_d_labels():
+def get_d_labels(version=1):
     d_labels = {}
-    df = get_labels()
+    df = get_labels(version)
     label_array = get_labels_array()
     for index, row in df.iterrows():
         d_labels[row['image_name']] = label_array[index]
@@ -151,8 +156,8 @@ def top_occ(feat_comb, n_top = 5):
         print idx, fc, 1.0*feat_comb_occ[fc]/n_total_samples
     print 'checksum', sum(feat_comb)
 
-def make_stratified_split(no_folds=5, verbose=False):
-    only_labels = get_labels_array()
+def make_stratified_split(no_folds=5, verbose=False,version=1):
+    only_labels = get_labels_array(version)
     # df = get_labels()
     # only_labels = df.drop(['image_name'], axis = 1, inplace = False)
     # only_labels = only_labels.as_matrix()

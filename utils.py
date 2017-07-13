@@ -20,7 +20,7 @@ def find_model_metadata(metadata_dir, config_name,best=False):
     if best:
         metadata_paths = glob.glob(metadata_dir + '/%s-*-best.pkl' % config_name)
     else:
-        metadata_paths = glob.glob(metadata_dir + '/%s-*' % config_name)
+        metadata_paths = glob.glob(metadata_dir + '/%s-*[0-9].pkl' % config_name)
     if not metadata_paths:
         raise ValueError('No metadata files for config %s' % config_name)
     elif len(metadata_paths) > 1:

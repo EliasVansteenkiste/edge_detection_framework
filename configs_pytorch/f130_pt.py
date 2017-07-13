@@ -216,7 +216,7 @@ class MyDenseNet(nn.Module):
 
         # Final batch norm
         self.features.add_module('norm5', nn.BatchNorm2d(num_features))
-        self.classifier_drop = nn.Dropout(p=0.75)
+        #self.classifier_drop = nn.Dropout(p=0.75)
         # Linear layer
         self.classifier = nn.Linear(num_features, num_classes)
 
@@ -224,8 +224,8 @@ class MyDenseNet(nn.Module):
         features = self.features(x)
 
         out = F.relu(features, inplace=True)
-        out = self.classifier_drop(out)
-        out = F.avg_pool2d(out, kernel_size=7).view(features.size(0), -1)
+        #out = self.classifier_drop(out)
+        out = F.max_pool2d(out, kernel_size=7).view(features.size(0), -1)
         if feat:
             return out
         out = self.classifier(out)
@@ -247,7 +247,7 @@ def my_densenet121(pretrained=False, **kwargs):
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.densenet = my_densenet121(pretrained=True)
+        self.densenet = my_densenet121(pretrained=False)
         self.densenet.classifier = nn.Linear(self.densenet.classifier.in_features, p_transform["n_labels"])
         self.densenet.classifier.weight.data.zero_()
 

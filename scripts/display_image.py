@@ -4,7 +4,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from PIL import Image
 
-image_name = "test_27988.jpg"
+image_name = "train_30154.jpg"
 image_dir = "/home/frederic/Downloads/plnt/"
 
 fig = plt.figure()

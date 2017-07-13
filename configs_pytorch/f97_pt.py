@@ -239,7 +239,7 @@ class MyResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def forward(self, x):
+    def forward(self, x, feat=False):
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -254,6 +254,8 @@ class MyResNet(nn.Module):
         x = self.layer4(x)
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
+        if feat:
+            return x
         x = self.fc_drop4(x)
         x = self.fc(x)
 
@@ -276,8 +278,10 @@ class Net(nn.Module):
         self.resnet.fc = nn.Linear(self.resnet.fc.in_features, p_transform["n_labels"])
         self.resnet.fc.weight.data.zero_()
 
-    def forward(self, x):
-        x = self.resnet(x)
+    def forward(self, x, feat=False):
+        x = self.resnet(x,feat)
+        if feat:
+            return x
         return F.sigmoid(x)
 
 

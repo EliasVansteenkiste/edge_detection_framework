@@ -25,22 +25,32 @@ file = open(path_valid3,mode="rb")
 preds3, targets3, ids3 = cPickle.load(file)
 file.close()
 
+path_valid4 = "/data/plnt/model-predictions/fgodin/f113_pt-20170703-094530/f113_pt-20170703-094530_1_predictions.p"
+
+file = open(path_valid4,mode="rb")
+preds4, targets4, ids4 = cPickle.load(file)
+file.close()
 
 pred_ensemble = np.zeros(preds1.shape)
 preds2_new = np.empty(preds2.shape)
 preds3_new = np.empty(preds3.shape)
+preds4_new = np.empty(preds4.shape)
 
 for i in range(preds1.shape[0]):
     index1 = np.where(ids1[i]==ids2)[0][0]
     index2 = np.where(ids1[i] == ids3)[0][0]
-    pred_ensemble[i] = (preds1[i,:]+preds2[index1,:]+preds3[index2,:])/3
+    index3 = np.where(ids1[i] == ids4)[0][0]
+    pred_ensemble[i] = (preds1[i,:]+preds2[index1,:]+preds3[index2,:]+preds4[index3,:])/4
     preds2_new[i]=preds2[index1,:]
     preds3_new[i] = preds3[index2, :]
+    preds4_new[i] = preds4[index3, :]
 
 preds2 = preds2_new
 preds3 = preds3_new
+preds4 = preds4_new
 targets2 = targets1
 targets3 = targets1
+targets4 = targets1
 
 indexes = np.arange(preds1.shape[0])
 np.random.shuffle(indexes)
@@ -88,19 +98,19 @@ def calculate_thresholds(preds,targets):
 
     return best_thresholds
 
-train_indexes = indexes[:indexes.shape[0]/2]
-valid_indexes = indexes[indexes.shape[0]/2:]
-
-print(calculate_perclass_f2(preds1[valid_indexes],targets1[valid_indexes]))
-print(calculate_f2(preds1[valid_indexes],targets1[valid_indexes]))
-print(calculate_perclass_f2(preds2[valid_indexes],targets2[valid_indexes]))
-print(calculate_f2(preds2[valid_indexes],targets2[valid_indexes]))
-print(calculate_perclass_f2(preds3[valid_indexes],targets3[valid_indexes]))
-print(calculate_f2(preds3[valid_indexes],targets3[valid_indexes]))
-print(calculate_perclass_f2(pred_ensemble[valid_indexes],targets1[valid_indexes]))
-print(calculate_f2(pred_ensemble[valid_indexes],targets1[valid_indexes]))
-print()
-
+# train_indexes = indexes[:indexes.shape[0]/2]
+# valid_indexes = indexes[indexes.shape[0]/2:]
+#
+# print(calculate_perclass_f2(preds1[valid_indexes],targets1[valid_indexes]))
+# print(calculate_f2(preds1[valid_indexes],targets1[valid_indexes]))
+# print(calculate_perclass_f2(preds2[valid_indexes],targets2[valid_indexes]))
+# print(calculate_f2(preds2[valid_indexes],targets2[valid_indexes]))
+# print(calculate_perclass_f2(preds3[valid_indexes],targets3[valid_indexes]))
+# print(calculate_f2(preds3[valid_indexes],targets3[valid_indexes]))
+# print(calculate_perclass_f2(pred_ensemble[valid_indexes],targets1[valid_indexes]))
+# print(calculate_f2(pred_ensemble[valid_indexes],targets1[valid_indexes]))
+# print()
+#
 # thresholds=calculate_thresholds(preds1[train_indexes],targets1[train_indexes])
 # print(calculate_perclass_f2(preds1[valid_indexes],targets1[valid_indexes],thresholds=thresholds))
 # print(calculate_f2(preds1[valid_indexes],targets1[valid_indexes],thresholds=thresholds))
@@ -118,7 +128,14 @@ print()
 # print(calculate_f2(pred_ensemble[valid_indexes],targets1[valid_indexes],thresholds=thresholds))
 
 
-for i in  range(targets1.shape[0]):
+for i in range(targets1.shape[0]):
 
-    if targets1[i,16]==1:
-
+    index = 15
+    #if targets1[i,index]==1:
+    sum_labels =  int(preds1[i,index]>0.5)+int(preds2[i,index]>0.5)+int(preds3[i,index]>0.5)
+    if sum_labels < 3:
+        print ids1[i],int(targets1[i,0]),int(targets1[i,1]),int(targets1[i,2]),int(targets1[i,3]), preds1[i,index], preds2[i,index], preds3[i,index],preds4[i,index], " - ", (pred_ensemble[i,index])
+# if targets1[i,16]==0:
+    #     sum_labels =  int(preds1[i,16]>0.5)+int(preds2[i,16]>0.5)+int(preds3[i,16]>0.5)
+    #     if sum_labels > 1:
+    #         print preds1[i,16],preds2[i,16],preds3[i,16], " - ", (preds1[i,16]+preds2[i,16]+preds3[i,16])

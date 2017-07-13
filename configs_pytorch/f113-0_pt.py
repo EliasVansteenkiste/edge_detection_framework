@@ -18,6 +18,7 @@ import torch
 import torchvision
 import torch.optim as optim
 import torch.nn as nn
+import torch.nn.init
 import torch.nn.functional as F
 import math
 
@@ -26,42 +27,30 @@ rng = np.random.RandomState(42)
 
 # transformations
 p_transform = {'patch_size': (256, 256),
-               'channels': 3,
+               'channels': 4,
                'n_labels': 17}
 
 
-#only lossless augmentations
 p_augmentation = {
-    'rot90_values': [0,1,2,3],
+    'rot90_values': [0, 1, 2, 3],
     'flip': [0, 1]
 }
 
-# mean and std values for imagenet
-mean=np.asarray([0.485, 0.456, 0.406])
-mean = mean[:, None, None]
-std = np.asarray([0.229, 0.224, 0.225])
-std = std[:, None, None]
+channel_zmuv_stats = {
+    'avg': [4970.55, 4245.35, 3064.64, 6360.08],
+    'std': [1785.79, 1576.31, 1661.19, 1841.09]}
+
 
 # data preparation function
 def data_prep_function_train(x, p_transform=p_transform, p_augmentation=p_augmentation, **kwargs):
-    x = x.convert('RGB')
-    x = np.array(x)
-    x = np.swapaxes(x,0,2)
-    x = x / 255.
-    x -= mean
-    x /= std
-    x = x.astype(np.float32)
+    x = np.array(x,dtype=np.float32)
+    x = data_transforms.channel_zmuv(x, img_stats=channel_zmuv_stats, no_channels=4)
     x = data_transforms.random_lossless(x, p_augmentation, rng)
     return x
 
 def data_prep_function_valid(x, p_transform=p_transform, **kwargs):
-    x = x.convert('RGB')
-    x = np.array(x)
-    x = np.swapaxes(x,0,2)
-    x = x / 255.
-    x -= mean
-    x /= std
-    x = x.astype(np.float32)
+    x = np.array(x, dtype=np.float32)
+    x = data_transforms.channel_zmuv(x, img_stats=channel_zmuv_stats, no_channels=4)
     return x
 
 def label_prep_function(x):
@@ -76,8 +65,8 @@ chunk_size = batch_size * nbatches_chunk
 
 folds = app.make_stratified_split(no_folds=5)
 print len(folds)
-train_ids = folds[0] + folds[1] + folds[2] + folds[3]
-valid_ids = folds[4]
+train_ids = folds[4] + folds[1] + folds[2] + folds[3]
+valid_ids = folds[0]
 all_ids = folds[0] + folds[1] + folds[2] + folds[3] + folds[4]
 
 bad_ids = []
@@ -89,7 +78,7 @@ test_ids = np.arange(40669)
 test2_ids = np.arange(20522)
 
 
-train_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
+train_data_iterator = data_iterators.DataGenerator(dataset='train',
                                                     batch_size=chunk_size,
                                                     img_ids = train_ids,
                                                     p_transform=p_transform,
@@ -98,7 +87,7 @@ train_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     rng=rng,
                                                     full_batch=True, random=True, infinite=True)
 
-feat_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
+feat_data_iterator = data_iterators.DataGenerator(dataset='train',
                                                     batch_size=chunk_size,
                                                     img_ids = all_ids,
                                                     p_transform=p_transform,
@@ -107,7 +96,7 @@ feat_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     rng=rng,
                                                     full_batch=False, random=True, infinite=False)
 
-valid_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
+valid_data_iterator = data_iterators.DataGenerator(dataset='train',
                                                     batch_size=chunk_size,
                                                     img_ids = valid_ids,
                                                     p_transform=p_transform,
@@ -116,7 +105,7 @@ valid_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     rng=rng,
                                                     full_batch=False, random=True, infinite=False)
 
-test_data_iterator = data_iterators.DataGenerator(dataset='test-jpg',
+test_data_iterator = data_iterators.DataGenerator(dataset='test',
                                                     batch_size=chunk_size,
                                                     img_ids = test_ids,
                                                     p_transform=p_transform,
@@ -125,7 +114,7 @@ test_data_iterator = data_iterators.DataGenerator(dataset='test-jpg',
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 
-test2_data_iterator = data_iterators.DataGenerator(dataset='test2-jpg',
+test2_data_iterator = data_iterators.DataGenerator(dataset='test2',
                                                     batch_size=chunk_size,
                                                     img_ids = test2_ids,
                                                     p_transform=p_transform,
@@ -136,7 +125,7 @@ test2_data_iterator = data_iterators.DataGenerator(dataset='test2-jpg',
 
 import tta
 tta = tta.LosslessTTA(p_augmentation)
-tta_test_data_iterator = data_iterators.TTADataGenerator(dataset='test-jpg',
+tta_test_data_iterator = data_iterators.TTADataGenerator(dataset='test',
                                                     tta = tta,
                                                     duplicate_label = False,
                                                     img_ids = test_ids,
@@ -146,7 +135,7 @@ tta_test_data_iterator = data_iterators.TTADataGenerator(dataset='test-jpg',
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 
-tta_test2_data_iterator = data_iterators.TTADataGenerator(dataset='test2-jpg',
+tta_test2_data_iterator = data_iterators.TTADataGenerator(dataset='test2',
                                                     tta = tta,
                                                     duplicate_label = False,
                                                     img_ids = test2_ids,
@@ -156,7 +145,7 @@ tta_test2_data_iterator = data_iterators.TTADataGenerator(dataset='test2-jpg',
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 
-tta_valid_data_iterator = data_iterators.TTADataGenerator(dataset='train-jpg',
+tta_valid_data_iterator = data_iterators.TTADataGenerator(dataset='train',
                                                     tta = tta,
                                                     duplicate_label = True,
                                                     batch_size=chunk_size,
@@ -168,7 +157,7 @@ tta_valid_data_iterator = data_iterators.TTADataGenerator(dataset='train-jpg',
                                                     full_batch=False, random=True, infinite=False)
 
 nchunks_per_epoch = train_data_iterator.nsamples / chunk_size
-max_nchunks = nchunks_per_epoch * 40
+max_nchunks = nchunks_per_epoch * 60
 
 
 validate_every = int(0.5 * nchunks_per_epoch)
@@ -176,10 +165,10 @@ save_every = int(10 * nchunks_per_epoch)
 
 learning_rate_schedule = {
     0: 5e-2,
-    int(max_nchunks * 0.3): 2e-2,
-    int(max_nchunks * 0.6): 1e-2,
-    int(max_nchunks * 0.8): 3e-3,
-    int(max_nchunks * 0.9): 1e-3
+    int(max_nchunks * 0.2): 2e-2,
+    int(max_nchunks * 0.4): 1e-2,
+    int(max_nchunks * 0.6): 3e-3,
+    int(max_nchunks * 0.8): 1e-3
 }
 
 # model
@@ -193,7 +182,7 @@ class MyDenseNet(nn.Module):
 
         # First convolution
         self.features = nn.Sequential(OrderedDict([
-            ('conv0', nn.Conv2d(3, num_init_features, kernel_size=7, stride=2, padding=3, bias=False)),
+            ('conv0', nn.Conv2d(4, num_init_features, kernel_size=7, stride=2, padding=3, bias=False)),
             ('norm0', nn.BatchNorm2d(num_init_features)),
             ('relu0', nn.ReLU(inplace=True)),
             ('pool0', nn.MaxPool2d(kernel_size=3, stride=2, padding=1)),
@@ -216,18 +205,15 @@ class MyDenseNet(nn.Module):
 
         # Final batch norm
         self.features.add_module('norm5', nn.BatchNorm2d(num_features))
-        self.classifier_drop = nn.Dropout(p=0.75)
+        self.classifier_drop = nn.Dropout(p=0.5)
         # Linear layer
         self.classifier = nn.Linear(num_features, num_classes)
 
-    def forward(self, x,feat=False):
+    def forward(self, x):
         features = self.features(x)
-
         out = F.relu(features, inplace=True)
         out = self.classifier_drop(out)
         out = F.avg_pool2d(out, kernel_size=7).view(features.size(0), -1)
-        if feat:
-            return out
         out = self.classifier(out)
         return out
 
@@ -247,22 +233,24 @@ def my_densenet121(pretrained=False, **kwargs):
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.densenet = my_densenet121(pretrained=True)
+        self.densenet = my_densenet121(pretrained=False)
+        self.densenet.apply(weight_init)
         self.densenet.classifier = nn.Linear(self.densenet.classifier.in_features, p_transform["n_labels"])
         self.densenet.classifier.weight.data.zero_()
 
-    def forward(self, x, feat=False):
-        if feat:
-            return self.densenet(x,feat)
-        else:
-            x = self.densenet(x)
-            return F.sigmoid(x)
+    def forward(self, x):
+        x = self.densenet(x)
+        return F.sigmoid(x)
 
+def weight_init(m):
+    if isinstance(m,nn.Conv2d):
+        m.weight.data=nn.init.orthogonal(m.weight.data)
 
 def build_model():
     net = Net()
 
     return namedtuple('Model', [ 'l_out'])( net )
+
 
 
 # loss

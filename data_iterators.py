@@ -8,7 +8,7 @@ import buffering
 
 class DataGenerator(object):
     def __init__(self, dataset, batch_size, img_ids, p_transform, data_prep_fun, label_prep_fun, rng,
-                 random, infinite, full_batch, **kwargs):
+                 random, infinite, full_batch, version=1, **kwargs):
 
 
         self.dataset = dataset
@@ -23,7 +23,7 @@ class DataGenerator(object):
         self.infinite = infinite
         self.full_batch = full_batch
 
-        self.labels = app.get_labels_array()
+        self.labels = app.get_labels_array(version=version)
 
     def generate(self):
         while True:
@@ -387,6 +387,54 @@ class TTADataGenerator(object):
                 x_batch = np.zeros((nb,) + self.p_transform['patch_size'], dtype='float32')
             
             if self.p_transform['n_labels']>1:
+                y_batch = np.zeros((nb, self.p_transform['n_labels']), dtype='float32')
+            else:
+                y_batch = np.zeros((nb,), dtype='float32')
+
+            img_id = self.img_ids[imid]
+            try:
+                img = app.read_compressed_image(self.dataset, img_id)
+            except Exception:
+                print 'cannot open ', self.dataset, img_id
+            x_batch = self.tta.make_augmentations(self.data_prep_fun(x=img))
+            if self.duplicate_label:
+                y_batch = self.tta.duplicate_label(self.label_prep_fun(self.labels[img_id]))
+
+            yield x_batch, y_batch, img_id
+
+
+class TTADataGenerator(object):
+    def __init__(self, dataset, tta, img_ids, p_transform, data_prep_fun, label_prep_fun, rng,
+                 random, duplicate_label=True, labels=app.get_labels_array(), **kwargs):
+
+        self.dataset = dataset
+        self.img_ids = img_ids
+        self.nsamples = len(img_ids)
+        self.tta = tta
+        self.batch_size = tta.n_augmentations
+        self.p_transform = p_transform
+        self.data_prep_fun = data_prep_fun
+        self.label_prep_fun = label_prep_fun
+        self.rng = rng
+        self.random = random
+        self.labels = labels
+        self.duplicate_label = duplicate_label
+
+    def generate(self):
+        rand_idxs = np.arange(len(self.img_ids))
+        if self.random:
+            self.rng.shuffle(rand_idxs)
+        for pos in xrange(len(rand_idxs)):
+            imid = rand_idxs[pos]
+            nb = self.batch_size
+            # allocate batches
+            if self.p_transform['channels']:
+                x_batch = np.zeros((nb, self.p_transform['channels'],) + self.p_transform['patch_size'],
+                                   dtype='float32')
+            else:
+                x_batch = np.zeros((nb,) + self.p_transform['patch_size'], dtype='float32')
+
+            if self.p_transform['n_labels'] > 1:
                 y_batch = np.zeros((nb, self.p_transform['n_labels']), dtype='float32')
             else:
                 y_batch = np.zeros((nb,), dtype='float32')

@@ -88,6 +88,24 @@ def generate_all_lossless(x, p_aug):
             augmentations.append(apply_lossless(x,rot90_value,flip))
     return np.stack(augmentations)
 
+def generate_all_lossless_plus_translation(x, p_aug, p_transform = None):
+    augmentations = []
+    pert_aug = dict((k, p_aug[k]) for k in (
+        'zoom_range', 'rotation_range', 'shear_range', 'translation_range', 'do_flip', 'allow_stretch') if
+                    k in p_aug)
+
+    for rot90_value in p_aug['rot90_values']:
+        for flip in p_aug['flip']:
+            lossless = apply_lossless(x, rot90_value, flip)
+
+            for i in [-1,1,0]:
+
+                lost = perturb(lossless, pert_aug, p_transform['patch_size'], rng, n_channels=p_transform["channels"])
+
+                augmentations.append(lost)
+
+    return np.stack(augmentations)
+
 def tiling(img, tile_shape):
     tiles = []
     for x in range(0,img.shape[0], tile_shape[0]):

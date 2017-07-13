@@ -1,8 +1,8 @@
 import string
 import sys
-import lasagne as nn
+
 import numpy as np
-import theano
+
 import sklearn
 from datetime import datetime
 
@@ -19,7 +19,7 @@ import os
 import cPickle
 from torch.autograd import Variable
 import argparse
-theano.config.warn_float64 = 'raise'
+
 
 parser = argparse.ArgumentParser(description='Evaluate dataset on trained model.')
 
@@ -41,8 +41,10 @@ valid = args.eval =='valid'
 test = args.eval == 'test'
 feat = args.eval == 'feat'
 train = args.eval == 'train'
+train_tta = args.eval == 'train_tta'
 valid_tta = args.eval == 'valid_tta'
 test_tta = args.eval == 'test_tta'
+valid_tta_feat = args.eval == 'valid_tta_feat'
 
 dump = args.dump
 
@@ -68,10 +70,14 @@ print("prediction path")
 # predictions path
 predictions_dir = utils.get_dir_path('model-predictions', pathfinder.METADATA_PATH)
 outputs_path = predictions_dir + '/' + expid
+
+if valid_tta_feat:
+    outputs_path += '/features'
+
 utils.auto_make_dir(outputs_path)
 
 if dump:
-    prediction_dump = os.path.join(outputs_path,expid+"_"+sys.argv[2]+"_predictions.p")
+    prediction_dump = os.path.join(outputs_path,expid+"_"+args.eval+"_predictions.p")
 
 print 'Build model'
 model = config().build_model()
@@ -92,6 +98,7 @@ def get_preds_targs(data_iterator):
     validation_losses = []
     preds = []
     targs = []
+    ids = []
 
     for n, (x_chunk, y_chunk, id_chunk) in enumerate(buffering.buffered_gen_threaded(data_iterator.generate())):
 
@@ -161,13 +168,56 @@ def get_preds_targs_tta(data_iterator):
 
     return preds, targs, ids
 
-if train:
-    train_it = config().trainset_valid_data_iterator
-    preds, targs, ids = get_preds_targs(train_it)
+def get_preds_targs_tta_feat(data_iterator):
+    print 'Data'
+    print 'n', sys.argv[2], ': %d' % data_iterator.nsamples
+
+
+    for n, (x_chunk, y_chunk, id_chunk) in enumerate(buffering.buffered_gen_threaded(data_iterator.generate())):
+        # load chunk to GPU
+        # if n == 10:
+        #    break
+        inputs, labels = Variable(torch.from_numpy(x_chunk).cuda(),volatile=True), Variable(
+            torch.from_numpy(y_chunk).cuda(),volatile=True)
+        predictions = model.l_out(inputs,feat=True)
+
+        predictions = predictions.cpu().data.numpy()
+
+        #final_prediction = np.mean(predictions.cpu().data.numpy(), axis=0)
+        # avg_loss = np.mean(loss, axis=0)
+
+        # validation_losses.append(avg_loss)
+
+        # print(predictions.shape)
+        # print(id_chunk)
+
+        for i in range(predictions.shape[0]):
+            file = open(os.path.join(outputs_path,str(id_chunk)+"_"+str(i)+".npy"),"wb")
+            np.save(file,predictions[i])
+            file.close()
+
+        if n % 1000 == 0:
+            print n, 'batches processed'
+
+
+
+if train or train_tta:
+    if train:
+        train_it = config().trainset_valid_data_iterator
+        preds, targs, ids = get_preds_targs(train_it)
+    elif train_tta:
+        train_it = config().tta_train_data_iterator
+        preds, targs, ids = get_preds_targs_tta(train_it)
     if dump:
         file = open(prediction_dump,"wb")
         cPickle.dump([preds,targs,ids],file)
         file.close()
+
+
+if valid_tta_feat:
+
+    valid_it = config().tta_valid_data_iterator
+    get_preds_targs_tta_feat(valid_it)
 
 
 if valid or valid_tta:
@@ -175,9 +225,10 @@ if valid or valid_tta:
     if valid:
         valid_it = config().valid_data_iterator
         preds, targs, ids = get_preds_targs(valid_it)
-    elif valid_tta:
+    elif valid_tta or valid_tta_feat:
         valid_it = config().tta_valid_data_iterator
         preds, targs, ids = get_preds_targs_tta(valid_it)
+
 
     if dump:
         file = open(prediction_dump,"wb")

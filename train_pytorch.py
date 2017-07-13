@@ -87,7 +87,7 @@ gts_train_print = []
 losses_time_print = []
 
 best_valid_f2_score = 0
-best_threshold = 0.925
+best_threshold = 0.91
 
 # use buffering.buffered_gen_threaded()
 for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in izip(chunk_idxs, buffering.buffered_gen_threaded(

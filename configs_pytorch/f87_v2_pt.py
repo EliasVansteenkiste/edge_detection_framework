@@ -74,7 +74,7 @@ batch_size = 32
 nbatches_chunk = 1
 chunk_size = batch_size * nbatches_chunk
 
-folds = app.make_stratified_split(no_folds=5)
+folds = app.make_stratified_split(no_folds=5,version=2)
 print len(folds)
 train_ids = folds[0] + folds[1] + folds[2] + folds[3]
 valid_ids = folds[4]
@@ -96,7 +96,7 @@ train_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     data_prep_fun = data_prep_function_train,
                                                     label_prep_fun = label_prep_function,
                                                     rng=rng,
-                                                    full_batch=True, random=True, infinite=True)
+                                                    full_batch=True, random=True, infinite=True,version=2)
 
 feat_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     batch_size=chunk_size,
@@ -105,7 +105,7 @@ feat_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     data_prep_fun = data_prep_function_valid,
                                                     label_prep_fun = label_prep_function,
                                                     rng=rng,
-                                                    full_batch=False, random=True, infinite=False)
+                                                    full_batch=False, random=True, infinite=False,version=2)
 
 valid_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     batch_size=chunk_size,
@@ -114,7 +114,7 @@ valid_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     data_prep_fun = data_prep_function_valid,
                                                     label_prep_fun = label_prep_function,
                                                     rng=rng,
-                                                    full_batch=False, random=True, infinite=False)
+                                                    full_batch=False, random=True, infinite=False,version=2)
 
 test_data_iterator = data_iterators.DataGenerator(dataset='test-jpg',
                                                     batch_size=chunk_size,
@@ -220,14 +220,11 @@ class MyDenseNet(nn.Module):
         # Linear layer
         self.classifier = nn.Linear(num_features, num_classes)
 
-    def forward(self, x,feat=False):
+    def forward(self, x):
         features = self.features(x)
-
         out = F.relu(features, inplace=True)
         out = self.classifier_drop(out)
         out = F.avg_pool2d(out, kernel_size=7).view(features.size(0), -1)
-        if feat:
-            return out
         out = self.classifier(out)
         return out
 
@@ -251,18 +248,16 @@ class Net(nn.Module):
         self.densenet.classifier = nn.Linear(self.densenet.classifier.in_features, p_transform["n_labels"])
         self.densenet.classifier.weight.data.zero_()
 
-    def forward(self, x, feat=False):
-        if feat:
-            return self.densenet(x,feat)
-        else:
-            x = self.densenet(x)
-            return F.sigmoid(x)
+    def forward(self, x):
+        x = self.densenet(x)
+        return F.sigmoid(x)
 
 
 def build_model():
     net = Net()
 
     return namedtuple('Model', [ 'l_out'])( net )
+
 
 
 # loss

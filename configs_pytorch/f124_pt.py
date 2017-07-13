@@ -70,7 +70,7 @@ def label_prep_function(x):
 
 
 # data iterators
-batch_size = 32
+batch_size = 8
 nbatches_chunk = 1
 chunk_size = batch_size * nbatches_chunk
 
@@ -220,14 +220,11 @@ class MyDenseNet(nn.Module):
         # Linear layer
         self.classifier = nn.Linear(num_features, num_classes)
 
-    def forward(self, x,feat=False):
+    def forward(self, x):
         features = self.features(x)
-
         out = F.relu(features, inplace=True)
         out = self.classifier_drop(out)
         out = F.avg_pool2d(out, kernel_size=7).view(features.size(0), -1)
-        if feat:
-            return out
         out = self.classifier(out)
         return out
 
@@ -251,18 +248,16 @@ class Net(nn.Module):
         self.densenet.classifier = nn.Linear(self.densenet.classifier.in_features, p_transform["n_labels"])
         self.densenet.classifier.weight.data.zero_()
 
-    def forward(self, x, feat=False):
-        if feat:
-            return self.densenet(x,feat)
-        else:
-            x = self.densenet(x)
-            return F.sigmoid(x)
+    def forward(self, x):
+        x = self.densenet(x)
+        return F.sigmoid(x)
 
 
 def build_model():
     net = Net()
 
     return namedtuple('Model', [ 'l_out'])( net )
+
 
 
 # loss

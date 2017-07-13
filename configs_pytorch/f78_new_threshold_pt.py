@@ -156,22 +156,11 @@ tta_test2_data_iterator = data_iterators.TTADataGenerator(dataset='test2-jpg',
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 
-tta_valid_data_iterator = data_iterators.TTADataGenerator(dataset='train-jpg',
-                                                    tta = tta,
-                                                    duplicate_label = True,
-                                                    batch_size=chunk_size,
-                                                    img_ids = valid_ids,
-                                                    p_transform=p_transform,
-                                                    data_prep_fun = data_prep_function_valid,
-                                                    label_prep_fun = label_prep_function,
-                                                    rng=rng,
-                                                    full_batch=False, random=True, infinite=False)
-
 nchunks_per_epoch = train_data_iterator.nsamples / chunk_size
 max_nchunks = nchunks_per_epoch * 40
 
 
-validate_every = int(0.5 * nchunks_per_epoch)
+validate_every = int(1 * nchunks_per_epoch)
 save_every = int(10 * nchunks_per_epoch)
 
 learning_rate_schedule = {
@@ -216,18 +205,15 @@ class MyDenseNet(nn.Module):
 
         # Final batch norm
         self.features.add_module('norm5', nn.BatchNorm2d(num_features))
-        self.classifier_drop = nn.Dropout(p=0.75)
+        # self.classifier_drop = nn.Dropout(p=0.75)
         # Linear layer
         self.classifier = nn.Linear(num_features, num_classes)
 
-    def forward(self, x,feat=False):
+    def forward(self, x):
         features = self.features(x)
-
         out = F.relu(features, inplace=True)
-        out = self.classifier_drop(out)
+        #out = self.classifier_drop(out)
         out = F.avg_pool2d(out, kernel_size=7).view(features.size(0), -1)
-        if feat:
-            return out
         out = self.classifier(out)
         return out
 
@@ -251,18 +237,16 @@ class Net(nn.Module):
         self.densenet.classifier = nn.Linear(self.densenet.classifier.in_features, p_transform["n_labels"])
         self.densenet.classifier.weight.data.zero_()
 
-    def forward(self, x, feat=False):
-        if feat:
-            return self.densenet(x,feat)
-        else:
-            x = self.densenet(x)
-            return F.sigmoid(x)
+    def forward(self, x):
+        x = self.densenet(x)
+        return F.sigmoid(x)
 
 
 def build_model():
     net = Net()
 
     return namedtuple('Model', [ 'l_out'])( net )
+
 
 
 # loss
@@ -274,22 +258,19 @@ class MultiLoss(torch.nn.modules.loss._Loss):
 
     def forward(self, input, target):
         torch.nn.modules.loss._assert_no_grad(target)
-
-
-        weighted = (self.weight*target)*(input-target)**2 +(1-target)*(input-target)**2
-
-        return torch.mean(weighted)
+        weighted_bce = - self.weight * target * torch.log(input + 1e-7) - (1 - target) * torch.log(1 - input + 1e-7)
+        return torch.mean(weighted_bce)
 
 
 def build_objective():
-    return MultiLoss(5.0)
+    return MultiLoss(1.0)
 
 def build_objective2():
     return MultiLoss(1.0)
 
 def score(gts, preds):
-    return app.f2_score_arr(gts, preds)
+    return app.f2_score_arr(gts, preds,treshold=0.235)
 
 # updates
 def build_updates(model, learning_rate):
-    return optim.SGD(model.parameters(), lr=learning_rate,momentum=0.9,weight_decay=0.0002)
+    return optim.SGD(model.parameters(), lr=learning_rate,momentum=0.9,weight_decay=0.0005)

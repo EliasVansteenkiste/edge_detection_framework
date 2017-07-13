@@ -165,6 +165,16 @@ tta_test2_data_iterator = data_iterators.TTADataGenerator(dataset='test2-jpg',
                                                     label_prep_fun = label_prep_function,
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
+tta_valid_data_iterator = data_iterators.TTADataGenerator(dataset='train-jpg',
+                                                    tta = tta,
+                                                    duplicate_label = True,
+                                                    batch_size=chunk_size,
+                                                    img_ids = valid_ids,
+                                                    p_transform=p_transform,
+                                                    data_prep_fun = data_prep_function_valid,
+                                                    label_prep_fun = label_prep_function,
+                                                    rng=rng,
+                                                    full_batch=False, random=False, infinite=False)
 
 nchunks_per_epoch = train_data_iterator.nsamples / chunk_size
 max_nchunks = nchunks_per_epoch * 40
@@ -228,7 +238,7 @@ class MyResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def forward(self, x):
+    def forward(self, x, feat=False):
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -243,6 +253,8 @@ class MyResNet(nn.Module):
         x = self.layer4(x)
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
+        if feat:
+            return x
         x = self.fc_drop4(x)
         x = self.fc(x)
 
@@ -263,8 +275,10 @@ class Net(nn.Module):
         self.resnet.fc = nn.Linear(self.resnet.fc.in_features, p_transform["n_labels"])
         self.resnet.fc.weight.data.zero_()
 
-    def forward(self, x):
-        x = self.resnet(x)
+    def forward(self, x, feat=False):
+        x = self.resnet(x,feat)
+        if feat:
+            return x
         return F.sigmoid(x)
 
 

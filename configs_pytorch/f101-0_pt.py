@@ -30,11 +30,18 @@ p_transform = {'patch_size': (256, 256),
                'n_labels': 17}
 
 
-#only lossless augmentations
 p_augmentation = {
-    'rot90_values': [0,1,2,3],
+    'zoom_range': (1, 1),
+    'rotation_range': (0, 0),
+    'shear_range': (0, 0),
+    'translation_range': (-1, 1),
+    'do_flip': True,
+    'allow_stretch': False,
+    'rot90_values': [0, 1, 2, 3],
     'flip': [0, 1]
 }
+
+
 
 # mean and std values for imagenet
 mean=np.asarray([0.485, 0.456, 0.406])
@@ -51,7 +58,10 @@ def data_prep_function_train(x, p_transform=p_transform, p_augmentation=p_augmen
     x -= mean
     x /= std
     x = x.astype(np.float32)
-    x = data_transforms.random_lossless(x, p_augmentation, rng)
+    pert_aug = dict((k,p_augmentation[k]) for k in ('zoom_range','rotation_range','shear_range','translation_range','do_flip','allow_stretch') if k in p_augmentation)
+    x = data_transforms.perturb(x, pert_aug, p_transform['patch_size'], rng,n_channels=p_transform["channels"])
+    losless_aug = dict((k,p_augmentation[k]) for k in ('rot90_values','flip') if k in p_augmentation)
+    x = data_transforms.random_lossless(x, losless_aug, rng)
     return x
 
 def data_prep_function_valid(x, p_transform=p_transform, **kwargs):
@@ -76,8 +86,8 @@ chunk_size = batch_size * nbatches_chunk
 
 folds = app.make_stratified_split(no_folds=5)
 print len(folds)
-train_ids = folds[0] + folds[1] + folds[2] + folds[3]
-valid_ids = folds[4]
+train_ids = folds[4] + folds[1] + folds[2] + folds[3]
+valid_ids = folds[0]
 all_ids = folds[0] + folds[1] + folds[2] + folds[3] + folds[4]
 
 bad_ids = []
@@ -220,14 +230,11 @@ class MyDenseNet(nn.Module):
         # Linear layer
         self.classifier = nn.Linear(num_features, num_classes)
 
-    def forward(self, x,feat=False):
+    def forward(self, x):
         features = self.features(x)
-
         out = F.relu(features, inplace=True)
         out = self.classifier_drop(out)
         out = F.avg_pool2d(out, kernel_size=7).view(features.size(0), -1)
-        if feat:
-            return out
         out = self.classifier(out)
         return out
 
@@ -251,18 +258,16 @@ class Net(nn.Module):
         self.densenet.classifier = nn.Linear(self.densenet.classifier.in_features, p_transform["n_labels"])
         self.densenet.classifier.weight.data.zero_()
 
-    def forward(self, x, feat=False):
-        if feat:
-            return self.densenet(x,feat)
-        else:
-            x = self.densenet(x)
-            return F.sigmoid(x)
+    def forward(self, x):
+        x = self.densenet(x)
+        return F.sigmoid(x)
 
 
 def build_model():
     net = Net()
 
     return namedtuple('Model', [ 'l_out'])( net )
+
 
 
 # loss
