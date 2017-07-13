@@ -136,15 +136,19 @@ def get_d_labels(version=1):
     return d_labels
 
 def chunkIt(seq, num):
-  avg = len(seq) / float(num)
-  out = []
-  last = 0.0
+    avg = len(seq) / float(num)
+    out = []
+    last = 0.0
+    while last < len(seq):
+        if int(last + avg + avg) > len(seq):
+            out.append(seq[int(last):len(seq)])
+            break
+        else:
+            out.append(seq[int(last):int(last + avg)])
+        last += avg
 
-  while last < len(seq):
-    out.append(seq[int(last):int(last + avg)])
-    last += avg
-
-  return out
+    assert len(out) == num
+    return out
 
 def top_occ(feat_comb, n_top = 5):
     # a method for printing top occurences of feature combinations
