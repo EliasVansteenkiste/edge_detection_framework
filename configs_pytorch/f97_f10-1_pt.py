@@ -74,6 +74,9 @@ nbatches_chunk = 1
 chunk_size = batch_size * nbatches_chunk
 
 folds = app.make_stratified_split(no_folds=10)
+#for checking if folds are equal over multiple config files
+for fold in folds:
+    print sum(fold)
 train_ids = folds[0] + folds[2] + folds[3] + folds[4]+ folds[5] + folds[6] + folds[7]+ folds[8] + folds[9] 
 valid_ids = folds[1]
 all_ids = []
