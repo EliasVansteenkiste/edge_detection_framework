@@ -283,7 +283,7 @@ class Net(nn.Module):
         self.resnet.fc.weight.data.zero_()
 
     def forward(self, x, feat=False):
-        x = self.resnet(x,feat)
+        
         if x.size()[2:] ==(256,256):
             self.resnet.avgpool = nn.AvgPool2d(7)
         elif x.size()[2:] ==(224,224):
@@ -291,9 +291,11 @@ class Net(nn.Module):
         else:
             raise NotImplementedError
 
+        x = self.resnet(x,feat)
+
         if feat:
             return x
-        
+
         return F.sigmoid(x)
 
 
