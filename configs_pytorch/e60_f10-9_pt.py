@@ -34,7 +34,8 @@ p_transform = {'patch_size': (256, 256),
 #only lossless augmentations
 p_augmentation = {
     'rot90_values': [0,1,2,3],
-    'flip': [0, 1]
+    'flip': [0, 1]:
+    'aug_out_size': (224, 224)
 }
 
 # mean and std values for imagenet
@@ -52,7 +53,9 @@ def data_prep_function_train(x, p_transform=p_transform, p_augmentation=p_augmen
     x -= mean
     x /= std
     x = x.astype(np.float32)
+    x = random_crop(x, p_augmentation['aug_out_size'][0], p_augmentation['aug_out_size'][0], rng)
     x = data_transforms.random_lossless(x, p_augmentation, rng)
+    random_crop
     return x
 
 def data_prep_function_valid(x, p_transform=p_transform, **kwargs):
