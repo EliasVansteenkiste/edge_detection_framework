@@ -34,7 +34,7 @@ p_transform = {'patch_size': (256, 256),
 #only lossless augmentations
 p_augmentation = {
     'rot90_values': [0,1,2,3],
-    'flip': [0, 1]:
+    'flip': [0, 1],
     'aug_out_size': (224, 224)
 }
 
