@@ -130,7 +130,7 @@ def get_labels_array(version=1):
 def get_d_labels(version=1):
     d_labels = {}
     df = get_labels(version)
-    label_array = get_labels_array()
+    label_array = get_labels_array(version)
     for index, row in df.iterrows():
         d_labels[row['image_name']] = label_array[index]
     return d_labels

@@ -44,7 +44,9 @@ train = args.eval == 'train'
 train_tta = args.eval == 'train_tta'
 valid_tta = args.eval == 'valid_tta'
 test_tta = args.eval == 'test_tta'
+train_tta_feat = args.eval == 'train_tta_feat'
 valid_tta_feat = args.eval == 'valid_tta_feat'
+test_tta_feat = args.eval == 'test_tta_feat'
 
 dump = args.dump
 
@@ -71,7 +73,7 @@ print("prediction path")
 predictions_dir = utils.get_dir_path('model-predictions', pathfinder.METADATA_PATH)
 outputs_path = predictions_dir + '/' + expid
 
-if valid_tta_feat:
+if valid_tta_feat or test_tta_feat:
     outputs_path += '/features'
 
 utils.auto_make_dir(outputs_path)
@@ -168,7 +170,7 @@ def get_preds_targs_tta(data_iterator):
 
     return preds, targs, ids
 
-def get_preds_targs_tta_feat(data_iterator):
+def get_preds_targs_tta_feat(data_iterator,prelabel=''):
     print 'Data'
     print 'n', sys.argv[2], ': %d' % data_iterator.nsamples
 
@@ -192,14 +194,17 @@ def get_preds_targs_tta_feat(data_iterator):
         # print(id_chunk)
 
         for i in range(predictions.shape[0]):
-            file = open(os.path.join(outputs_path,str(id_chunk)+"_"+str(i)+".npy"),"wb")
+            file = open(os.path.join(outputs_path,prelabel+str(id_chunk)+"_"+str(i)+".npy"),"wb")
             np.save(file,predictions[i])
             file.close()
 
         if n % 1000 == 0:
             print n, 'batches processed'
 
+if train_tta_feat:
 
+    train_it = config().tta_train_data_iterator
+    get_preds_targs_tta_feat(train_it)
 
 if train or train_tta:
     if train:
@@ -288,6 +293,17 @@ if valid or valid_tta:
     print 'worst classes'
     print app.get_headers()
     print 4*np.array(fps)+np.array(fns)
+
+if test_tta_feat:
+
+    test_it = config().tta_test_data_iterator
+    get_preds_targs_tta_feat(test_it,prelabel='test_')
+
+
+
+    test2_it = config().tta_test2_data_iterator
+    get_preds_targs_tta_feat(test2_it,prelabel='file_')
+
 
 if test or test_tta:
 
