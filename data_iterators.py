@@ -8,7 +8,7 @@ import buffering
 
 class DataGenerator(object):
     def __init__(self, dataset, batch_size, img_ids, p_transform, data_prep_fun, label_prep_fun, rng,
-                 random, infinite, full_batch, version=1, **kwargs):
+                 random, infinite, full_batch, override_patch_size=None, version=1, **kwargs):
 
 
         self.dataset = dataset
@@ -22,6 +22,12 @@ class DataGenerator(object):
         self.random = random
         self.infinite = infinite
         self.full_batch = full_batch
+        self.override_patch_size = override_patch_size
+        if override_patch_size:
+            self.patch_size = override_patch_size
+        else:
+            self.patch_size = self.p_transform['patch_size']
+
 
         self.labels = app.get_labels_array(version=version)
 
@@ -35,9 +41,9 @@ class DataGenerator(object):
                 nb = len(idxs_batch)
                 # allocate batches
                 if self.p_transform['channels']:
-                    x_batch = np.zeros((nb,self.p_transform['channels'],) + self.p_transform['patch_size'], dtype='float32')
+                    x_batch = np.zeros((nb,self.p_transform['channels'],) + self.patch_size, dtype='float32')
                 else:
-                    x_batch = np.zeros((nb,) + self.p_transform['patch_size'], dtype='float32')
+                    x_batch = np.zeros((nb,) + self.patch_size, dtype='float32')
                 if self.p_transform['n_labels']>1:
                     y_batch = np.zeros((nb, self.p_transform['n_labels']), dtype='float32')
                 else:
