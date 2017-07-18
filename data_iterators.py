@@ -5,6 +5,7 @@ import pathfinder
 import utils
 import app
 import buffering
+import os
 
 class DataGenerator(object):
     def __init__(self, dataset, batch_size, img_ids, p_transform, data_prep_fun, label_prep_fun, rng,
@@ -410,15 +411,14 @@ class TTADataGenerator(object):
             yield x_batch, y_batch, img_id
 
 
-class TTADataGenerator(object):
-    def __init__(self, dataset, tta, img_ids, p_transform, data_prep_fun, label_prep_fun, rng,
-                 random, duplicate_label=True, labels=app.get_labels_array(), **kwargs):
+class EnsembleTTADataGenerator(object):
+    def __init__(self, dataset, img_ids, p_transform, data_prep_fun, label_prep_fun, rng,
+                 random, duplicate_label=True, labels=app.get_labels_array(), pretext='', **kwargs):
 
         self.dataset = dataset
         self.img_ids = img_ids
         self.nsamples = len(img_ids)
-        self.tta = tta
-        self.batch_size = tta.n_augmentations
+        self.batch_size = p_transform["num_aug"]
         self.p_transform = p_transform
         self.data_prep_fun = data_prep_fun
         self.label_prep_fun = label_prep_fun
@@ -426,6 +426,7 @@ class TTADataGenerator(object):
         self.random = random
         self.labels = labels
         self.duplicate_label = duplicate_label
+        self.pretext = pretext
 
     def generate(self):
         rand_idxs = np.arange(len(self.img_ids))
@@ -436,10 +437,10 @@ class TTADataGenerator(object):
             nb = self.batch_size
             # allocate batches
             if self.p_transform['channels']:
-                x_batch = np.zeros((nb, self.p_transform['channels'],) + self.p_transform['patch_size'],
+                x_batch = np.zeros((nb, self.p_transform['channels'], self.p_transform['vector_size']),
                                    dtype='float32')
             else:
-                x_batch = np.zeros((nb,) + self.p_transform['patch_size'], dtype='float32')
+                x_batch = np.zeros((nb,self.p_transform['vector_size']), dtype='float32')
 
             if self.p_transform['n_labels'] > 1:
                 y_batch = np.zeros((nb, self.p_transform['n_labels']), dtype='float32')
@@ -447,15 +448,105 @@ class TTADataGenerator(object):
                 y_batch = np.zeros((nb,), dtype='float32')
 
             img_id = self.img_ids[imid]
-            try:
-                img = app.read_compressed_image(self.dataset, img_id)
-            except Exception:
-                print 'cannot open ', self.dataset, img_id
-            x_batch = self.tta.make_augmentations(self.data_prep_fun(x=img))
+
+
+            for aug in range(nb):
+                vectors = []
+                for config_name in self.dataset:
+                    try:
+                        file = open(os.path.join("/data/plnt/model-predictions/fgodin/",
+                                                 config_name, "features",
+                                                 self.pretext + str(img_id) + "_" + str(aug) + ".npy"), "rb")
+                        vectors.append(np.load(file))
+                        file.close()
+                    except Exception:
+                        print 'cannot open ', img_id,
+                x_batch[aug] = np.concatenate(vectors)
+
+
             if self.duplicate_label:
-                y_batch = self.tta.duplicate_label(self.label_prep_fun(self.labels[img_id]))
+                labels = self.labels[img_id]
+                labels = labels[None,:]
+                y_batch = np.repeat(labels,nb,axis=0)
 
             yield x_batch, y_batch, img_id
+
+
+class EnsembleDataGenerator(object):
+    def __init__(self, dataset, batch_size, img_ids, p_transform, data_prep_fun, label_prep_fun, rng,
+                 random, infinite, full_batch, override_patch_size=None, version=1, **kwargs):
+
+
+        self.dataset = dataset
+        self.img_ids = img_ids
+        self.nsamples = len(img_ids)
+        self.batch_size = batch_size
+        self.p_transform = p_transform
+        self.data_prep_fun = data_prep_fun
+        self.label_prep_fun = label_prep_fun
+        self.rng = rng
+        self.random = random
+        self.infinite = infinite
+        self.full_batch = full_batch
+        self.override_patch_size = override_patch_size
+        if override_patch_size:
+            self.patch_size = override_patch_size
+        else:
+            self.patch_size = self.p_transform['vector_size']
+
+
+        self.labels = app.get_labels_array(version=version)
+
+    def generate(self):
+        while True:
+            rand_idxs = np.arange(len(self.img_ids))
+            if self.random:
+                self.rng.shuffle(rand_idxs)
+            for pos in xrange(0, len(rand_idxs), self.batch_size):
+                idxs_batch = rand_idxs[pos:pos + self.batch_size]
+                nb = len(idxs_batch)
+                # allocate batches
+                if self.p_transform['channels']:
+                    x_batch = np.zeros((nb,self.p_transform['channels'],self.patch_size), dtype='float32')
+                else:
+                    x_batch = np.zeros((nb,self.patch_size), dtype='float32')
+                if self.p_transform['n_labels']>1:
+                    y_batch = np.zeros((nb, self.p_transform['n_labels']), dtype='float32')
+                else:
+                    y_batch = np.zeros((nb,), dtype='float32')
+
+                batch_ids = []
+
+                for i, idx in enumerate(idxs_batch):
+                    img_id = self.img_ids[idx]
+                    batch_ids.append(img_id)
+                    aug=self.rng.randint(self.p_transform["num_aug"])
+                    vectors =[]
+
+                    for config_name in self.dataset:
+                        try:
+                            file = open(os.path.join("/data/plnt/model-predictions/fgodin/",
+                                                     config_name, "features",
+                                                     str(img_id) + "_" + str(aug) + ".npy"), "rb")
+                            vectors.append(np.load(file))
+                            file.close()
+                        except Exception:
+                            print 'cannot open ', img_id
+                    x_batch[i] = np.concatenate(vectors)
+
+
+                    y_batch[i] = self.label_prep_fun(self.labels[img_id])
+
+                    #print 'i', i, 'img_id', img_id, y_batch[i]
+
+                if self.full_batch:
+                    if nb == self.batch_size:
+                        yield x_batch, y_batch, batch_ids
+                else:
+                    yield x_batch, y_batch, batch_ids
+
+            if not self.infinite:
+                break
 
 def _test_data_generator():
         #testing data iterator 
