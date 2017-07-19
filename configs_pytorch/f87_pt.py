@@ -85,6 +85,9 @@ bad_ids = []
 train_ids = [x for x in train_ids if x not in bad_ids]
 valid_ids = [x for x in valid_ids if x not in bad_ids]
 
+train_ids = sorted(train_ids)
+valid_ids = sorted(valid_ids)
+
 test_ids = np.arange(40669)
 test2_ids = np.arange(20522)
 
@@ -166,6 +169,16 @@ tta_valid_data_iterator = data_iterators.TTADataGenerator(dataset='train-jpg',
                                                     label_prep_fun = label_prep_function,
                                                     rng=rng,
                                                     full_batch=False, random=True, infinite=False)
+tta_train_data_iterator = data_iterators.TTADataGenerator(dataset='train-jpg',
+                                                    tta = tta,
+                                                    duplicate_label = True,
+                                                    batch_size=chunk_size,
+                                                    img_ids = train_ids,
+                                                    p_transform=p_transform,
+                                                    data_prep_fun = data_prep_function_valid,
+                                                    label_prep_fun = label_prep_function,
+                                                    rng=rng,
+                                                    full_batch=False, random=False, infinite=False)
 
 nchunks_per_epoch = train_data_iterator.nsamples / chunk_size
 max_nchunks = nchunks_per_epoch * 40

@@ -37,14 +37,27 @@ config_name = args.config_name
 set_configuration('configs_pytorch', config_name)
 
 
-valid = args.eval =='valid'
-test = args.eval == 'test'
+
+
+all_tta_feat = args.eval == 'all_tta_feat'
 feat = args.eval == 'feat'
+
 train = args.eval == 'train'
 train_tta = args.eval == 'train_tta'
+train_tta_feat = args.eval == 'train_tta_feat'
+
+valid = args.eval =='valid'
 valid_tta = args.eval == 'valid_tta'
-test_tta = args.eval == 'test_tta'
 valid_tta_feat = args.eval == 'valid_tta_feat'
+valid_tta_majority = args.eval == 'valid_tta_majority'
+
+test = args.eval == 'test'
+test_tta = args.eval == 'test_tta'
+test_tta_feat = args.eval == 'test_tta_feat'
+test_tta_majority = args.eval == 'test_tta_majority'
+
+
+
 
 dump = args.dump
 
@@ -71,7 +84,7 @@ print("prediction path")
 predictions_dir = utils.get_dir_path('model-predictions', pathfinder.METADATA_PATH)
 outputs_path = predictions_dir + '/' + expid
 
-if valid_tta_feat:
+if valid_tta_feat or test_tta_feat or all_tta_feat or train_tta_feat:
     outputs_path += '/features'
 
 utils.auto_make_dir(outputs_path)
@@ -128,7 +141,7 @@ def get_preds_targs(data_iterator):
     return preds, targs, ids
 
 
-def get_preds_targs_tta(data_iterator):
+def get_preds_targs_tta(data_iterator,aggregation="mean",threshold=0.5):
     print 'Data'
     print 'n', sys.argv[2], ': %d' % data_iterator.nsamples
 
@@ -145,7 +158,17 @@ def get_preds_targs_tta(data_iterator):
             torch.from_numpy(y_chunk).cuda(),volatile=True)
         predictions = model.l_out(inputs)
 
-        final_prediction = np.mean(predictions.cpu().data.numpy(), axis=0)
+        predictions = predictions.cpu().data.numpy()
+
+        if aggregation=="majority":
+            final_prediction = np.zeros((predictions.shape[1],))
+            for dim in range(predictions.shape[1]):
+                count = np.bincount(predictions[:, dim] > threshold, minlength=2)
+                final_prediction[dim] = 1 if count[1] >= predictions.shape[0] / 2.0 else 0
+
+
+        elif aggregation=="mean":
+            final_prediction = np.mean(predictions, axis=0)
         # avg_loss = np.mean(loss, axis=0)
 
         # validation_losses.append(avg_loss)
@@ -168,7 +191,7 @@ def get_preds_targs_tta(data_iterator):
 
     return preds, targs, ids
 
-def get_preds_targs_tta_feat(data_iterator):
+def get_preds_targs_tta_feat(data_iterator,prelabel=''):
     print 'Data'
     print 'n', sys.argv[2], ': %d' % data_iterator.nsamples
 
@@ -192,14 +215,22 @@ def get_preds_targs_tta_feat(data_iterator):
         # print(id_chunk)
 
         for i in range(predictions.shape[0]):
-            file = open(os.path.join(outputs_path,str(id_chunk)+"_"+str(i)+".npy"),"wb")
+            file = open(os.path.join(outputs_path,prelabel+str(id_chunk)+"_"+str(i)+".npy"),"wb")
             np.save(file,predictions[i])
             file.close()
 
         if n % 1000 == 0:
             print n, 'batches processed'
 
+if train_tta_feat:
 
+    train_it = config().tta_train_data_iterator
+    get_preds_targs_tta_feat(train_it)
+
+if all_tta_feat:
+
+    all_it = config().tta_all_data_iterator
+    get_preds_targs_tta_feat(all_it)
 
 if train or train_tta:
     if train:
@@ -220,14 +251,17 @@ if valid_tta_feat:
     get_preds_targs_tta_feat(valid_it)
 
 
-if valid or valid_tta:
+if valid or valid_tta or valid_tta_majority:
 
     if valid:
         valid_it = config().valid_data_iterator
         preds, targs, ids = get_preds_targs(valid_it)
-    elif valid_tta or valid_tta_feat:
+    elif valid_tta:
         valid_it = config().tta_valid_data_iterator
         preds, targs, ids = get_preds_targs_tta(valid_it)
+    elif valid_tta_majority:
+        valid_it = config().tta_valid_data_iterator
+        preds, targs, ids = get_preds_targs_tta(valid_it,aggregation="majority",threshold=0.53)
 
 
     if dump:
@@ -246,16 +280,16 @@ if valid or valid_tta:
     # print sklearn.metrics.confusion_matrix(weather_targs,weather_preds)
 
     print 'Calculating F2 scores'
-    threshold = 0.5
+    threshold = 0.53
     qpreds = preds > threshold
     print app.f2_score(targs[:,:17], qpreds[:,:17])
     print app.f2_score(targs[:,:17], qpreds[:,:17], average=None)
-    print 'Calculating F2 scores (argmax for weather class)'
-    w_pred = preds[:,:4]
-    cw_pred = np.argmax(w_pred,axis=1)
-    qw_pred = np.zeros((preds.shape[0],4))
-    qw_pred[np.arange(preds.shape[0]),cw_pred] = 1
-    qpreds[:,:4] = qw_pred
+    # print 'Calculating F2 scores (argmax for weather class)'
+    # w_pred = preds[:,:4]
+    # cw_pred = np.argmax(w_pred,axis=1)
+    # qw_pred = np.zeros((preds.shape[0],4))
+    # qw_pred[np.arange(preds.shape[0]),cw_pred] = 1
+    # qpreds[:,:4] = qw_pred
     print app.f2_score(targs[:,:17], qpreds[:,:17])
     print app.f2_score(targs[:,:17], qpreds[:,:17], average=None)
     print 'Calculating F2 scores only for weather labels'
@@ -289,7 +323,18 @@ if valid or valid_tta:
     print app.get_headers()
     print 4*np.array(fps)+np.array(fns)
 
-if test or test_tta:
+if test_tta_feat:
+
+    test_it = config().tta_test_data_iterator
+    get_preds_targs_tta_feat(test_it,prelabel='test_')
+
+
+
+    test2_it = config().tta_test2_data_iterator
+    get_preds_targs_tta_feat(test2_it,prelabel='file_')
+
+
+if test or test_tta or test_tta_majority:
 
     imgid2pred = {}
     imgid2raw = {}
@@ -299,6 +344,10 @@ if test or test_tta:
     elif test_tta:
         test_it = config().tta_test_data_iterator
         preds, _, ids = get_preds_targs_tta(test_it)
+    elif test_tta_majority:
+        test_it = config().tta_test_data_iterator
+        preds, _, ids = get_preds_targs_tta(test_it,aggregation="majority")
+
     for i, p in enumerate(preds):
         imgid2pred['test_'+str(i)] = p > 0.5
         imgid2raw['test_' + str(i)] = p
@@ -309,6 +358,9 @@ if test or test_tta:
     elif test_tta:
         test2_it = config().tta_test2_data_iterator
         preds, _, ids = get_preds_targs_tta(test2_it)
+    elif test_tta_majority:
+        test2_it = config().tta_test2_data_iterator
+        preds, _, ids = get_preds_targs_tta(test2_it,aggregation="majority")
     for i, p in enumerate(preds):
         imgid2pred['file_'+str(i)] = p > 0.5
         imgid2raw['file_' + str(i)] = p

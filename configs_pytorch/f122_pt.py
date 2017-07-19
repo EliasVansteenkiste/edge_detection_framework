@@ -172,7 +172,7 @@ nchunks_per_epoch = train_data_iterator.nsamples / chunk_size
 max_nchunks = nchunks_per_epoch * 10
 
 
-validate_every = int(0.5 * nchunks_per_epoch)
+validate_every = int(0.01 * nchunks_per_epoch)
 save_every = int(10 * nchunks_per_epoch)
 
 learning_rate_schedule = {
@@ -190,6 +190,8 @@ class MyDenseNet(nn.Module):
 
         super(MyDenseNet, self).__init__()
 
+
+
         # First convolution
         self.features = nn.Sequential(OrderedDict([
             ('conv0', nn.Conv2d(3, num_init_features, kernel_size=7, stride=2, padding=3, bias=False)),
@@ -205,47 +207,83 @@ class MyDenseNet(nn.Module):
         self.blocks = []
         self.transition = []
         final_num_features = 0
-        for i, num_layers in enumerate(block_config):
 
 
 
-            block = torchvision.models.densenet._DenseBlock(num_layers=num_layers, num_input_features=num_features,
+
+        self.denseblock1 = torchvision.models.densenet._DenseBlock(num_layers=block_config[0], num_input_features=num_features,
                                 bn_size=bn_size, growth_rate=growth_rate, drop_rate=drop_rate)
 
-            self.blocks.append(block)
+        num_features = num_features + block_config[0] * growth_rate
 
-            num_features = num_features + num_layers * growth_rate
-            if i != len(block_config) - 1:
-                trans = torchvision.models.densenet._Transition(num_input_features=num_features, num_output_features=num_features // 2)
-                self.transition.append(trans)
+        self.transition1 = torchvision.models.densenet._Transition(num_input_features=num_features,
+                                                             num_output_features=num_features // 2)
 
-                num_features = num_features // 2
-            else:
-                # Final batch norm
-                self.transition.append(nn.BatchNorm2d(num_features))
+        num_features = num_features // 2
 
+        final_num_features+=num_features*16
 
+        self.denseblock2 = torchvision.models.densenet._DenseBlock(num_layers=block_config[1], num_input_features=num_features,
+                                bn_size=bn_size, growth_rate=growth_rate, drop_rate=drop_rate)
 
+        num_features = num_features + block_config[1] * growth_rate
 
+        self.transition2 = torchvision.models.densenet._Transition(num_input_features=num_features,
+                                                             num_output_features=num_features // 2)
 
+        num_features = num_features // 2
 
-        self.classifier_drop = nn.Dropout(p=0.75)
-        # Linear layer
-        self.classifier = nn.Linear(num_features, num_classes)
+        final_num_features += num_features * 4
+
+        self.denseblock3 = torchvision.models.densenet._DenseBlock(num_layers=block_config[2], num_input_features=num_features,
+                                bn_size=bn_size, growth_rate=growth_rate, drop_rate=drop_rate)
+
+        num_features = num_features + block_config[2] * growth_rate
+
+        self.transition3 = torchvision.models.densenet._Transition(num_input_features=num_features,
+                                                             num_output_features=num_features // 2)
+
+        num_features = num_features // 2
+
+        final_num_features += num_features
+
+        self.denseblock4 = torchvision.models.densenet._DenseBlock(num_layers=block_config[3], num_input_features=num_features,
+                                bn_size=bn_size, growth_rate=growth_rate, drop_rate=drop_rate)
+
+        num_features = num_features + block_config[3] * growth_rate
+
+        final_num_features += num_features
+
+        self.norm5 = nn.BatchNorm2d(num_features)
+
+        #self.classifier_drop = nn.Dropout(p=0.75)
+
+        self.classifier = nn.Linear(final_num_features, num_classes)
 
     def forward(self, x):
-        blocks_out = []
+
         x = self.features(x)
-        blocks_out = [self.blocks[0](x)]
-        for i in range(0,len(self.blocks)-1):
+        b1 = self.denseblock1(x)
+        t1 = self.transition1(b1)
+        b2 = self.denseblock2(t1)
+        t2 = self.transition2(b2)
+        b3 = self.denseblock3(t2)
+        t3 = self.transition3(b3)
+        b4 = self.denseblock4(t3)
+        t4 = F.relu(self.norm5(b4), inplace=True)
 
-            blocks_out = torch.cat([blocks_out,self.blocks[i]])
+        t1_pooled = F.avg_pool2d(t1, kernel_size=7).view(batch_size, -1)
+        t2_pooled = F.avg_pool2d(t2, kernel_size=7).view(batch_size, -1)
+        t3_pooled = F.avg_pool2d(t3, kernel_size=7).view(batch_size, -1)
+        t4_pooled = F.avg_pool2d(t4, kernel_size=7).view(batch_size, -1)
 
-        blocks_out_result = blocks_out(x)
-        out = F.relu(blocks_out_result, inplace=True)
-        out = self.classifier_drop(out)
-        out = F.avg_pool2d(out, kernel_size=7).view(blocks_out_result.size(0), -1)
-        out = self.classifier(out)
+        catted = torch.cat([t1_pooled,t2_pooled,t3_pooled,t4_pooled],dim=1)
+
+        temp = catted.cpu().data.numpy()
+
+        #out = self.classifier_drop(catted)
+
+        out = self.classifier(catted)
         return out
 
 
@@ -275,14 +313,32 @@ class Net(nn.Module):
 def build_model():
     net = Net()
 
-    # filename = "/data/plnt/models/fgodin/f92_pt-20170623-114700-best.pkl"
-    # file = open(filename,"rb")
-    # model_params = cPickle.load(file)
-    # file.close()
-    # net.densenet.features.load_state_dict(model_params['param_values'].densenet.features)
+    filename = "/data/plnt/models/fgodin/f92_pt-20170623-114700-best.pkl"
+    file = open(filename,"rb")
+    model_params = cPickle.load(file)
+    file.close()
 
+    pretrained_dict = model_params['param_values']
+    del pretrained_dict["densenet.classifier.weight"]
 
-    print()
+    for key in pretrained_dict.keys():
+        if ".features.denseblock" in key:
+            new_key = key.replace(".features.denseblock",".denseblock")
+            pretrained_dict[new_key]=pretrained_dict[key]
+            del pretrained_dict[key]
+        elif ".features.transition" in key:
+            new_key = key.replace(".features.transition", ".transition")
+            pretrained_dict[new_key] = pretrained_dict[key]
+            del pretrained_dict[key]
+        elif ".features.norm5" in key:
+            new_key = key.replace(".features.norm5", ".norm5")
+            pretrained_dict[new_key] = pretrained_dict[key]
+            del pretrained_dict[key]
+    current_params = net.state_dict()
+    current_params.update(pretrained_dict)
+
+    net.load_state_dict(current_params)
+
 
     return namedtuple('Model', [ 'l_out'])( net )
 
