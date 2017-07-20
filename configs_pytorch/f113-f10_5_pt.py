@@ -170,6 +170,17 @@ tta_train_data_iterator = data_iterators.TTADataGenerator(dataset='train',
                                                     rng=rng,
                                                     full_batch=False, random=True, infinite=False)
 
+tta_all_data_iterator = data_iterators.TTADataGenerator(dataset='train',
+                                                    tta = tta,
+                                                    duplicate_label = True,
+                                                    batch_size=chunk_size,
+                                                    img_ids = all_ids,
+                                                    p_transform=p_transform,
+                                                    data_prep_fun = data_prep_function_valid,
+                                                    label_prep_fun = label_prep_function,
+                                                    rng=rng,
+                                                    full_batch=False, random=True, infinite=False)
+
 nchunks_per_epoch = train_data_iterator.nsamples / chunk_size
 max_nchunks = nchunks_per_epoch * 60
 
@@ -255,8 +266,11 @@ class Net(nn.Module):
         self.densenet.classifier.weight.data.zero_()
 
     def forward(self, x, feat=False):
-        x = self.densenet(x,feat)
-        return F.sigmoid(x)
+        if feat:
+            return self.densenet(x,feat)
+        else:
+            x = self.densenet(x)
+            return F.sigmoid(x)
 
 def weight_init(m):
     if isinstance(m,nn.Conv2d):

@@ -404,6 +404,9 @@ class TTADataGenerator(object):
                 img = app.read_compressed_image(self.dataset, img_id)
             except Exception:
                 print 'cannot open ', self.dataset, img_id
+            # if self.p_transform['channels'] == 4:
+            #     x_batch = self.tta.make_augmentations(np.swapaxes(self.data_prep_fun(x=img),0,2))
+            # else:
             x_batch = self.tta.make_augmentations(self.data_prep_fun(x=img))
             if self.duplicate_label:
                 y_batch = self.tta.duplicate_label(self.label_prep_fun(self.labels[img_id]))
@@ -528,7 +531,7 @@ class EnsembleDataGenerator(object):
                             file = open(os.path.join("/data/plnt/model-predictions/fgodin/",
                                                      config_name, "features",
                                                      str(img_id) + "_" + str(aug) + ".npy"), "rb")
-                            vectors.append(np.load(file))
+                            vectors.append(np.load(file).flatten())
                             file.close()
                         except Exception:
                             print 'cannot open ', img_id
