@@ -58,7 +58,7 @@ def label_prep_function(x):
 
 
 # data iterators
-batch_size = 32
+batch_size = 320
 nbatches_chunk = 1
 chunk_size = batch_size * nbatches_chunk
 
