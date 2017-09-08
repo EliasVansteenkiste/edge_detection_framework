@@ -55,6 +55,7 @@ fabric.properties
 
 
 ### Python ###
+=======
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -100,7 +101,7 @@ htmlcov/
 .cache
 nosetests.xml
 coverage.xml
-*,cover
+*.cover
 .hypothesis/
 
 # Translations
@@ -133,6 +134,10 @@ target/
 # celery beat schedule file
 celerybeat-schedule
 
+=======
+# SageMath parsed files
+*.sage.py
+
 # dotenv
 .env
 
@@ -143,6 +148,7 @@ ENV/
 
 # Spyder project settings
 .spyderproject
+.spyproject
 
 # Rope project settings
 .ropeproject
@@ -194,3 +200,9 @@ Temporary Items
 
 # myfiles
 SETTINGS.json
+=======
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
