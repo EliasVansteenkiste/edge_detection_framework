@@ -1,4 +1,4 @@
-# Understanding the Amazon from space
+# Bare bones project template for pytorch with support for different configurations
 
 ## Training models
 python train.py \<config name\>
