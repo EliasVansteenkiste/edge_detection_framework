@@ -1,12 +1,11 @@
 
-#config a6 is equivalent to a5, except the normalization
+#copy of j25
 import numpy as np
-import lasagne as nn
+
 from collections import namedtuple
 from functools import partial
-import lasagne.layers.dnn as dnn
-import lasagne
-import theano.tensor as T
+
+
 from PIL import Image
 
 import data_transforms
@@ -14,7 +13,15 @@ import data_iterators
 import pathfinder
 import utils
 import app
-import nn_planet
+
+import torch
+import torchvision
+import torch.optim as optim
+import torch.nn as nn
+from torch.nn import init
+import torch.nn.functional as F
+from torch.autograd import Variable
+import math
 
 restart_from_save = None
 rng = np.random.RandomState(42)
@@ -25,13 +32,22 @@ p_transform = {'patch_size': (256, 256),
                'n_labels': 17}
 
 
-#only lossless augmentations
 p_augmentation = {
-    'rot90_values': [0,1,2,3],
+    'zoom_range': (1, 1.1),
+    'rotation_range': (0, 0),
+    'shear_range': (0, 0),
+    'translation_range': (-1, 1),
+    'do_flip': True,
+    'allow_stretch': False,
+    'rot90_values': [0, 1, 2, 3],
     'flip': [0, 1]
 }
 
 
+
+# mean and std values calculated with the slim data iterator
+mean = 0.512
+std = 0.311
 
 # data preparation function
 def data_prep_function_train(x, p_transform=p_transform, p_augmentation=p_augmentation, **kwargs):
@@ -39,8 +55,13 @@ def data_prep_function_train(x, p_transform=p_transform, p_augmentation=p_augmen
     x = np.array(x)
     x = np.swapaxes(x,0,2)
     x = x / 255.
+    x -= mean
+    x /= std
     x = x.astype(np.float32)
-    x = data_transforms.lossless(x, p_augmentation, rng)
+    pert_aug = dict((k,p_augmentation[k]) for k in ('zoom_range','rotation_range','shear_range','translation_range','do_flip','allow_stretch') if k in p_augmentation)
+    x = data_transforms.perturb(x, pert_aug, p_transform['patch_size'], rng,n_channels=p_transform["channels"])
+    losless_aug = dict((k,p_augmentation[k]) for k in ('rot90_values','flip') if k in p_augmentation)
+    x = data_transforms.random_lossless(x, losless_aug, rng)
     return x
 
 def data_prep_function_valid(x, p_transform=p_transform, **kwargs):
@@ -48,11 +69,14 @@ def data_prep_function_valid(x, p_transform=p_transform, **kwargs):
     x = np.array(x)
     x = np.swapaxes(x,0,2)
     x = x / 255.
+    x -= mean
+    x /= std
     x = x.astype(np.float32)
     return x
 
-def label_prep_function(label):
-    return label
+def label_prep_function(x):
+    #cut out the label
+    return x
 
 
 # data iterators
@@ -74,15 +98,6 @@ valid_ids = [x for x in valid_ids if x not in bad_ids]
 test_ids = np.arange(40669)
 test2_ids = np.arange(20522)
 
-labels = app.get_labels_array()
-print 'np.sum(labels)', np.sum(labels)
-
-print app.read_img_ids_from_lst_file('manual_labeling/fn_cultivation_wrongly_labeled.lst')
-d_l2i = {12:app.read_img_ids_from_lst_file('manual_labeling/fn_cultivation_wrongly_labeled.lst')}
-app.remove_tags(labels, d_l2i)
-
-print 'should be lower after removing tags'
-print 'np.sum(labels)', np.sum(labels)
 
 train_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     batch_size=chunk_size,
@@ -91,18 +106,7 @@ train_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     data_prep_fun = data_prep_function_train,
                                                     label_prep_fun = label_prep_function,
                                                     rng=rng,
-                                                    full_batch=True, random=True, infinite=True,
-                                                    labels = labels)
-
-train_data_iterator2 = data_iterators.DataGenerator(dataset='train-jpg',
-                                                    batch_size=chunk_size,
-                                                    img_ids = train_ids,
-                                                    p_transform=p_transform,
-                                                    data_prep_fun = data_prep_function_train,
-                                                    label_prep_fun = label_prep_function,
-                                                    rng=rng,
-                                                    full_batch=False, random=False, infinite=False,
-                                                    labels=labels)
+                                                    full_batch=True, random=True, infinite=True)
 
 feat_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     batch_size=chunk_size,
@@ -111,7 +115,7 @@ feat_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     data_prep_fun = data_prep_function_valid,
                                                     label_prep_fun = label_prep_function,
                                                     rng=rng,
-                                                    full_batch=False, random=False, infinite=False)
+                                                    full_batch=False, random=True, infinite=False)
 
 valid_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     batch_size=chunk_size,
@@ -120,7 +124,7 @@ valid_data_iterator = data_iterators.DataGenerator(dataset='train-jpg',
                                                     data_prep_fun = data_prep_function_valid,
                                                     label_prep_fun = label_prep_function,
                                                     rng=rng,
-                                                    full_batch=False, random=False, infinite=False)
+                                                    full_batch=False, random=True, infinite=False)
 
 test_data_iterator = data_iterators.DataGenerator(dataset='test-jpg',
                                                     batch_size=chunk_size,
@@ -140,158 +144,428 @@ test2_data_iterator = data_iterators.DataGenerator(dataset='test2-jpg',
                                                     rng=rng,
                                                     full_batch=False, random=False, infinite=False)
 
+import tta
+tta = tta.LosslessTTA(p_augmentation)
+tta_test_data_iterator = data_iterators.TTADataGenerator(dataset='test-jpg',
+                                                    tta = tta,
+                                                    duplicate_label = False,
+                                                    img_ids = test_ids,
+                                                    p_transform=p_transform,
+                                                    data_prep_fun = data_prep_function_valid,
+                                                    label_prep_fun = label_prep_function,
+                                                    rng=rng,
+                                                    full_batch=False, random=False, infinite=False)
+
+tta_test2_data_iterator = data_iterators.TTADataGenerator(dataset='test2-jpg',
+                                                    tta = tta,
+                                                    duplicate_label = False,
+                                                    img_ids = test2_ids,
+                                                    p_transform=p_transform,
+                                                    data_prep_fun = data_prep_function_valid,
+                                                    label_prep_fun = label_prep_function,
+                                                    rng=rng,
+                                                    full_batch=False, random=False, infinite=False)
+
+tta_valid_data_iterator = data_iterators.TTADataGenerator(dataset='train-jpg',
+                                                    tta = tta,
+                                                    duplicate_label = True,
+                                                    batch_size=chunk_size,
+                                                    img_ids = valid_ids,
+                                                    p_transform=p_transform,
+                                                    data_prep_fun = data_prep_function_valid,
+                                                    label_prep_fun = label_prep_function,
+                                                    rng=rng,
+                                                    full_batch=False, random=True, infinite=False)
+
 nchunks_per_epoch = train_data_iterator.nsamples / chunk_size
 max_nchunks = nchunks_per_epoch * 40
 
 
-validate_every = int(0.1 * nchunks_per_epoch)
-save_every = int(1. * nchunks_per_epoch)
+validate_every = int(0.5 * nchunks_per_epoch)
+save_every = int(10 * nchunks_per_epoch)
 
 learning_rate_schedule = {
-    0: 5e-4,
-    int(max_nchunks * 0.4): 2e-4,
-    int(max_nchunks * 0.6): 1e-4,
-    int(max_nchunks * 0.7): 5e-5,
-    int(max_nchunks * 0.8): 2e-5,
-    int(max_nchunks * 0.9): 1e-5
+    0: 1e-3,
+    int(max_nchunks * 0.4): 5e-4,
+    int(max_nchunks * 0.6): 2e-4,
+    int(max_nchunks * 0.8): 1e-4,
+    int(max_nchunks * 0.9): 5e-5
 }
 
 # model
-conv = partial(dnn.Conv2DDNNLayer,
-                 filter_size=3,
-                 pad='same',
-                 W=nn.init.Orthogonal(),
-                 nonlinearity=nn.nonlinearities.very_leaky_rectify)
-
-max_pool = partial(dnn.MaxPool2DDNNLayer,
-                     pool_size=2)
-
-drop = lasagne.layers.DropoutLayer
-
-dense = partial(lasagne.layers.DenseLayer,
-                W=lasagne.init.Orthogonal(),
-                nonlinearity=lasagne.nonlinearities.very_leaky_rectify)
-
-
-def inrn_v2(lin):
-    n_base_filter = 32
-
-    l1 = conv(lin, n_base_filter, filter_size=1)
-
-    l2 = conv(lin, n_base_filter, filter_size=1)
-    l2 = conv(l2, n_base_filter, filter_size=3)
-
-    l3 = conv(lin, n_base_filter, filter_size=1)
-    l3 = conv(l3, n_base_filter, filter_size=3)
-    l3 = conv(l3, n_base_filter, filter_size=3)
-
-    l = lasagne.layers.ConcatLayer([l1, l2, l3])
-
-    l = conv(l, lin.output_shape[1], filter_size=1)
-
-    l = lasagne.layers.ElemwiseSumLayer([l, lin])
-
-    l = lasagne.layers.NonlinearityLayer(l, nonlinearity=lasagne.nonlinearities.rectify)
-
-    return l
+pretrained_settings = {
+    'inceptionresnetv2': {
+        'imagenet': {
+            'url': 'http://webia.lip6.fr/~cadene/Downloads/inceptionresnetv2-d579a627.pth',
+            'input_space': 'RGB',
+            'input_size': [3, 299, 299],
+            'mean': [0.5, 0.5, 0.5],
+            'std': [0.5, 0.5, 0.5],
+            'num_classes': 1000
+        },
+        'imagenet+background': {
+            'url': 'http://webia.lip6.fr/~cadene/Downloads/inceptionresnetv2-d579a627.pth',
+            'input_space': 'RGB',
+            'input_size': [3, 299, 299],
+            'mean': [0.5, 0.5, 0.5],
+            'std': [0.5, 0.5, 0.5],
+            'num_classes': 1001
+        }
+    }
+}
 
 
-def inrn_v2_red(lin):
-    # We want to reduce our total volume /4
+class BasicConv2d(nn.Module):
 
-    den = 16
-    nom2 = 4
-    nom3 = 5
-    nom4 = 7
+    def __init__(self, in_planes, out_planes, kernel_size, stride, padding=0):
+        super(BasicConv2d, self).__init__()
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=False) # verify bias false
+        self.bn = nn.BatchNorm2d(out_planes)
+        #self.bn = nn.BatchNorm2d(out_planes, eps=0.001, momentum=0, affine=True)
+        self.relu = nn.ReLU(inplace=False)
 
-    ins = lin.output_shape[1]
-
-    l1 = max_pool(lin)
-
-    l2 = conv(lin, ins // den * nom2, filter_size=3, stride=2)
-
-    l3 = conv(lin, ins // den * nom2, filter_size=1)
-    l3 = conv(l3, ins // den * nom3, filter_size=3, stride=2)
-
-    l4 = conv(lin, ins // den * nom2, filter_size=1)
-    l4 = conv(l4, ins // den * nom3, filter_size=3)
-    l4 = conv(l4, ins // den * nom4, filter_size=3, stride=2)
-
-    l = lasagne.layers.ConcatLayer([l1, l2, l3, l4])
-
-    return l
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.bn(x)
+        x = self.relu(x)
+        return x
 
 
-def feat_red(lin):
-    # We want to reduce the feature maps by a factor of 2
-    ins = lin.output_shape[1]
-    l = conv(lin, ins // 2, filter_size=1)
-    return l
+class Mixed_5b(nn.Module):
+
+    def __init__(self):
+        super(Mixed_5b, self).__init__()
+
+        self.branch0 = BasicConv2d(192, 96, kernel_size=1, stride=1)
+
+        self.branch1 = nn.Sequential(
+            BasicConv2d(192, 48, kernel_size=1, stride=1),
+            BasicConv2d(48, 64, kernel_size=5, stride=1, padding=2)
+        ) 
+
+        self.branch2 = nn.Sequential(
+            BasicConv2d(192, 64, kernel_size=1, stride=1),
+            BasicConv2d(64, 96, kernel_size=3, stride=1, padding=1),
+            BasicConv2d(96, 96, kernel_size=3, stride=1, padding=1)
+        )
+
+        self.branch3 = nn.Sequential(
+            nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False),
+            BasicConv2d(192, 64, kernel_size=1, stride=1)
+        )
+
+    def forward(self, x):
+        x0 = self.branch0(x)
+        x1 = self.branch1(x)
+        x2 = self.branch2(x)
+        x3 = self.branch3(x)
+        out = torch.cat((x0, x1, x2, x3), 1)
+        return out
 
 
-def build_model(l_in=None):
-    l_in = nn.layers.InputLayer((None, p_transform['channels'],) + p_transform['patch_size']) if l_in is None else l_in
-    l_target = nn.layers.InputLayer((None,p_transform['n_labels']))
+class Block35(nn.Module):
 
-    l = conv(l_in, 64)
+    def __init__(self, scale=1.0):
+        super(Block35, self).__init__()
 
-    l = inrn_v2_red(l)
-    l = inrn_v2(l)
+        self.scale = scale
 
-    l = inrn_v2_red(l)
-    l = inrn_v2(l)
+        self.branch0 = BasicConv2d(320, 32, kernel_size=1, stride=1)
 
-    l = inrn_v2_red(l)
-    l = inrn_v2(l)
+        self.branch1 = nn.Sequential(
+            BasicConv2d(320, 32, kernel_size=1, stride=1),
+            BasicConv2d(32, 32, kernel_size=3, stride=1, padding=1)
+        )
 
-    l = inrn_v2_red(l)
-    l = inrn_v2(l)
+        self.branch2 = nn.Sequential(
+            BasicConv2d(320, 32, kernel_size=1, stride=1),
+            BasicConv2d(32, 48, kernel_size=3, stride=1, padding=1),
+            BasicConv2d(48, 64, kernel_size=3, stride=1, padding=1)
+        )
 
-    l = inrn_v2_red(l)
-    l = inrn_v2(l)
+        self.conv2d = nn.Conv2d(128, 320, kernel_size=1, stride=1)
+        self.relu = nn.ReLU(inplace=False)
 
-    l = drop(l, p=0.75)
-    l_feat = nn.layers.GlobalPoolLayer(l)
-
-
-    l = nn.layers.DenseLayer(l_feat, num_units=p_transform['n_labels'],
-                                 W=nn.init.Orthogonal(),
-                                 b=nn.init.Constant(0.5),
-                                 nonlinearity=nn.nonlinearities.identity)
-
-
-    l_weather = nn.layers.SliceLayer(l, indices=slice(0,4), axis=-1)
-    l_weather = nn.layers.NonlinearityLayer(l_weather, nonlinearity=nn.nonlinearities.softmax)
-
-    l_other = nn_planet.MajorExclusivityLayer(l, idx_major=0)
-    l_other = nn.layers.SliceLayer(l_other, indices=slice(4,None), axis=-1)
-
-    l_out = nn.layers.ConcatLayer([l_weather, l_other], axis=-1)
-
-    return namedtuple('Model', ['l_in', 'l_out', 'l_target', 'l_feat'])(l_in, l_out, l_target, l_feat)
+    def forward(self, x):
+        x0 = self.branch0(x)
+        x1 = self.branch1(x)
+        x2 = self.branch2(x)
+        out = torch.cat((x0, x1, x2), 1)
+        out = self.conv2d(out)
+        out = out * self.scale + x
+        out = self.relu(out)
+        return out
 
 
-def build_objective(model, deterministic=False, epsilon=1.e-7):
-    predictions = T.flatten(nn.layers.get_output(model.l_out, deterministic=deterministic))
-    targets = T.flatten(nn.layers.get_output(model.l_target))
-    preds = T.clip(predictions, epsilon, 1.-epsilon)
-    #logs = [-T.log(preds), -T.log(1-preds)]
-    weighted_bce = - 5 * targets * T.log(preds) - (1-targets)*T.log(1-preds)    
-    reg = nn.regularization.l2(predictions)                                                                                                                                                                                       
-    weight_decay=0.00004
-    return T.mean(weighted_bce) + weight_decay * reg 
+class Mixed_6a(nn.Module):
 
-def build_objective2(model, deterministic=False, epsilon=1.e-7):
-    predictions = T.flatten(nn.layers.get_output(model.l_out, deterministic=deterministic))
-    targets = T.flatten(nn.layers.get_output(model.l_target))
-    preds = T.clip(predictions, epsilon, 1.-epsilon)
-    return T.mean(nn.objectives.binary_crossentropy(preds, targets))
+    def __init__(self):
+        super(Mixed_6a, self).__init__()
+        
+        self.branch0 = BasicConv2d(320, 384, kernel_size=3, stride=2)
 
-def score(gts, preds, epsilon=1.e-11):
+        self.branch1 = nn.Sequential(
+            BasicConv2d(320, 256, kernel_size=1, stride=1),
+            BasicConv2d(256, 256, kernel_size=3, stride=1, padding=1),
+            BasicConv2d(256, 384, kernel_size=3, stride=2)
+        )
+
+        self.branch2 = nn.MaxPool2d(3, stride=2)
+
+    def forward(self, x):
+        x0 = self.branch0(x)
+        x1 = self.branch1(x)
+        x2 = self.branch2(x)
+        out = torch.cat((x0, x1, x2), 1)
+        return out
+
+
+class Block17(nn.Module):
+
+    def __init__(self, scale=1.0):
+        super(Block17, self).__init__()
+
+        self.scale = scale
+
+        self.branch0 = BasicConv2d(1088, 192, kernel_size=1, stride=1)
+
+        self.branch1 = nn.Sequential(
+            BasicConv2d(1088, 128, kernel_size=1, stride=1),
+            BasicConv2d(128, 160, kernel_size=(1,7), stride=1, padding=(0,3)),
+            BasicConv2d(160, 192, kernel_size=(7,1), stride=1, padding=(3,0))
+        )
+
+        self.conv2d = nn.Conv2d(384, 1088, kernel_size=1, stride=1)
+        self.relu = nn.ReLU(inplace=False)
+
+    def forward(self, x):
+        x0 = self.branch0(x)
+        x1 = self.branch1(x)
+        out = torch.cat((x0, x1), 1)
+        out = self.conv2d(out)
+        out = out * self.scale + x
+        out = self.relu(out)
+        return out
+
+
+class Mixed_7a(nn.Module):
+
+    def __init__(self):
+        super(Mixed_7a, self).__init__()
+        
+        self.branch0 = nn.Sequential(
+            BasicConv2d(1088, 256, kernel_size=1, stride=1),
+            BasicConv2d(256, 384, kernel_size=3, stride=2)
+        )
+
+        self.branch1 = nn.Sequential(
+            BasicConv2d(1088, 256, kernel_size=1, stride=1),
+            BasicConv2d(256, 288, kernel_size=3, stride=2)
+        )
+
+        self.branch2 = nn.Sequential(
+            BasicConv2d(1088, 256, kernel_size=1, stride=1),
+            BasicConv2d(256, 288, kernel_size=3, stride=1, padding=1),
+            BasicConv2d(288, 320, kernel_size=3, stride=2)
+        )
+
+        self.branch3 = nn.MaxPool2d(3, stride=2)
+
+    def forward(self, x):
+        x0 = self.branch0(x)
+        x1 = self.branch1(x)
+        x2 = self.branch2(x)
+        x3 = self.branch3(x)
+        out = torch.cat((x0, x1, x2, x3), 1)
+        return out
+
+
+class Block8(nn.Module):
+
+    def __init__(self, scale=1.0, noReLU=False):
+        super(Block8, self).__init__()
+
+        self.scale = scale
+        self.noReLU = noReLU
+
+        self.branch0 = BasicConv2d(2080, 192, kernel_size=1, stride=1)
+
+        self.branch1 = nn.Sequential(
+            BasicConv2d(2080, 192, kernel_size=1, stride=1),
+            BasicConv2d(192, 224, kernel_size=(1,3), stride=1, padding=(0,1)),
+            BasicConv2d(224, 256, kernel_size=(3,1), stride=1, padding=(1,0))
+        )
+
+        self.conv2d = nn.Conv2d(448, 2080, kernel_size=1, stride=1)
+        if not self.noReLU:
+            self.relu = nn.ReLU(inplace=False)
+
+    def forward(self, x):
+        x0 = self.branch0(x)
+        x1 = self.branch1(x)
+        out = torch.cat((x0, x1), 1)
+        out = self.conv2d(out)
+        out = out * self.scale + x
+        if not self.noReLU:
+            out = self.relu(out)
+        return out
+
+
+class InceptionResNetV2(nn.Module):
+
+    def __init__(self, num_classes=1001):
+        super(InceptionResNetV2, self).__init__()
+        # Special attributs
+        self.input_space = None
+        self.input_size = (299, 299, 3)
+        self.mean = None
+        self.std = None
+        # Modules
+        self.conv2d_1a = BasicConv2d(3, 32, kernel_size=3, stride=2)
+        self.conv2d_2a = BasicConv2d(32, 32, kernel_size=3, stride=1)
+        self.conv2d_2b = BasicConv2d(32, 64, kernel_size=3, stride=1, padding=1)
+        self.maxpool_3a = nn.MaxPool2d(3, stride=2)
+        self.conv2d_3b = BasicConv2d(64, 80, kernel_size=1, stride=1)
+        self.conv2d_4a = BasicConv2d(80, 192, kernel_size=3, stride=1)
+        self.maxpool_5a = nn.MaxPool2d(3, stride=2)
+        self.mixed_5b = Mixed_5b()
+        self.repeat = nn.Sequential(
+            Block35(scale=0.17),
+            Block35(scale=0.17),
+            Block35(scale=0.17),
+            Block35(scale=0.17),
+            Block35(scale=0.17),
+            Block35(scale=0.17),
+            Block35(scale=0.17),
+            Block35(scale=0.17),
+            Block35(scale=0.17),
+            Block35(scale=0.17)
+        )
+        self.mixed_6a = Mixed_6a()
+        self.repeat_1 = nn.Sequential(
+            Block17(scale=0.10),
+            Block17(scale=0.10),
+            Block17(scale=0.10),
+            Block17(scale=0.10),
+            Block17(scale=0.10),
+            Block17(scale=0.10),
+            Block17(scale=0.10),
+            Block17(scale=0.10),
+            Block17(scale=0.10),
+            Block17(scale=0.10),
+            Block17(scale=0.10),
+            Block17(scale=0.10),
+            Block17(scale=0.10),
+            Block17(scale=0.10),
+            Block17(scale=0.10),
+            Block17(scale=0.10),
+            Block17(scale=0.10),
+            Block17(scale=0.10),
+            Block17(scale=0.10),
+            Block17(scale=0.10)
+        )
+        self.mixed_7a = Mixed_7a()
+        self.repeat_2 = nn.Sequential(
+            Block8(scale=0.20),
+            Block8(scale=0.20),
+            Block8(scale=0.20),
+            Block8(scale=0.20),
+            Block8(scale=0.20),
+            Block8(scale=0.20),
+            Block8(scale=0.20),
+            Block8(scale=0.20),
+            Block8(scale=0.20)
+        )
+        self.block8 = Block8(noReLU=True)
+        self.conv2d_7b = BasicConv2d(2080, 1536, kernel_size=1, stride=1)
+        self.avgpool_1a = nn.AvgPool2d(8, count_include_pad=False)
+        self.classif = nn.Linear(1536, num_classes)
+
+    def forward(self, x):
+        x = self.conv2d_1a(x)
+        x = self.conv2d_2a(x)
+        x = self.conv2d_2b(x)
+        x = self.maxpool_3a(x)
+        x = self.conv2d_3b(x)
+        x = self.conv2d_4a(x)
+        x = self.maxpool_5a(x)
+        x = self.mixed_5b(x)
+        x = self.repeat(x)
+        x = self.mixed_6a(x)
+        x = self.repeat_1(x)
+        x = self.mixed_7a(x)
+        x = self.repeat_2(x)
+        x = self.block8(x)
+        x = self.conv2d_7b(x)
+        x = self.avgpool_1a(x)
+        x = x.view(x.size(0), -1)
+        x = self.classif(x) 
+        return x
+
+def inceptionresnetv2(num_classes=1001, pretrained='imagenet'):
+    r"""InceptionResNetV2 model architecture from the
+    `"InceptionV4, Inception-ResNet..." <https://arxiv.org/abs/1602.07261>`_ paper.
+    """
+    model = InceptionResNetV2(num_classes=num_classes)
+    if pretrained is not None:
+        settings = pretrained_settings['inceptionresnetv2'][pretrained]
+        model.load_state_dict(torch.utils.model_zoo.load_url(settings['url']))
+        if pretrained == 'imagenet':
+            new_classif = nn.Linear(1536, 1000)
+            new_classif.weight.data = model.classif.weight.data[1:]
+            new_classif.bias.data = model.classif.bias.data[1:]
+            model.classif = new_classif
+        model.input_space = settings['input_space']
+        model.input_size = settings['input_size']
+        model.mean = settings['mean']
+        model.std = settings['std']
+    return model
+
+
+class Net(nn.Module):
+    def __init__(self):
+        super(Net, self).__init__()
+        self.inceptionresnetv2 = inceptionresnetv2(pretrained=None)
+        self.n_classes = p_transform["n_labels"]
+        self.inceptionresnetv2.classif = nn.Linear(1536, self.n_classes)
+        self.inceptionresnetv2.avgpool_1a = nn.AvgPool2d(6, count_include_pad=False)
+
+
+    def forward(self, x):
+        x = self.inceptionresnetv2(x)
+        return F.sigmoid(x)
+
+
+def build_model():
+    net = Net()
+    return namedtuple('Model', [ 'l_out'])( net )
+
+
+
+# loss
+class MultiLoss(torch.nn.modules.loss._Loss):
+
+    def __init__(self, weight):
+        super(MultiLoss, self).__init__()
+        self.weight = weight
+
+    def forward(self, input, target):
+        torch.nn.modules.loss._assert_no_grad(target)
+
+        weighted = (self.weight*target)*(input-target)**2 +(1-target)*(input-target)**2
+
+        return torch.mean(weighted)
+
+
+def build_objective():
+    return MultiLoss(4.0)
+
+def build_objective2():
+    return MultiLoss(1.0)
+
+def score(gts, preds):
     return app.f2_score_arr(gts, preds)
 
-test_score = score
-
-def build_updates(train_loss, model, learning_rate):
-    updates = nn.updates.adam(train_loss, nn.layers.get_all_params(model.l_out, trainable=True), learning_rate)
-    return updates
+# updates
+def build_updates(model, learning_rate):
+    return optim.Adam(model.parameters(), lr=learning_rate)
