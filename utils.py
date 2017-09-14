@@ -5,7 +5,9 @@ import time
 import numpy as np
 import glob
 import os
-import cPickle as pickle
+# import cPickle as pickle
+import pickle
+
 
 maxfloat = np.finfo(np.float32).max
 
@@ -13,7 +15,7 @@ maxfloat = np.finfo(np.float32).max
 def auto_make_dir(path):
     if not os.path.exists(path):
         os.makedirs(path)
-        print 'Created dir', path
+        print('Created dir', path)
 
 
 def find_model_metadata(metadata_dir, config_name,best=False):
@@ -25,7 +27,7 @@ def find_model_metadata(metadata_dir, config_name,best=False):
         raise ValueError('No metadata files for config %s' % config_name)
     elif len(metadata_paths) > 1:
         raise ValueError('Multiple metadata files for config %s' % config_name)
-    print 'Loaded model from', metadata_paths[0]
+    print('Loaded model from', metadata_paths[0])
     return metadata_paths[0]
 
 
@@ -103,7 +105,7 @@ def load_np(path):
 
 def copy(from_folder, to_folder):
     command = "cp -r %s %s/." % (from_folder, to_folder)
-    print command
+    print(command)
     os.system(command)
 
 

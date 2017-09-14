@@ -1,5 +1,5 @@
 import multiprocessing as mp
-import Queue
+import queue
 import threading
 
 
@@ -38,7 +38,7 @@ def buffered_gen_threaded(source_gen, buffer_size=5):
     if buffer_size < 2:
         raise RuntimeError("Minimal buffer size is 2!")
 
-    buffer = Queue.Queue(maxsize=buffer_size - 1)
+    buffer = queue.Queue(maxsize=buffer_size - 1)
 
     # the effective buffer size is one less, because the generation process
     # will generate one extra element and block until there is room in the buffer.

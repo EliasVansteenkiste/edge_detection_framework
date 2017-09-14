@@ -1,7 +1,7 @@
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-print plt.get_backend() 
+print(plt.get_backend())
 import warnings
 import numpy as np
 import matplotlib.animation as animation
@@ -17,7 +17,6 @@ def show_img(img, img_dir='test.jpg'):
     plt.imshow(img)
     fig.savefig(img_dir, bbox_inches='tight')
 
-
 def plot_learning_curves(train_losses, valid_losses, expid, img_dir):
     fig = plt.figure()
     x_range = np.arange(len(train_losses)) + 1
@@ -27,7 +26,7 @@ def plot_learning_curves(train_losses, valid_losses, expid, img_dir):
 
     if img_dir is not None:
         fig.savefig(img_dir + '/%s.png' % expid, bbox_inches='tight')
-        print 'Saved plot'
+        print('Saved plot')
     else:
         plt.show()
     fig.clf()
@@ -47,7 +46,6 @@ def plot_img(img, outfile):
 
     # img      = io.imread(fileName)
     numBands = img.shape[0]
-    print img.shape
 
     plt.figure(figsize=(5*(numBands+1), 5)) # One for the original image
     f = 1.0/(numBands+1)
