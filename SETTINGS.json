@@ -1,8 +1,7 @@
 {
-  "DATA_PATH": "/data/plnt/",
-  "METADATA_PATH": "/data/plnt/",
-  "PREDICTIONS_PATH": "/data/plnt/predictions/",
-  "SAMPLE_SUBMISSION_PATH": "/data/plnt/sample_submission_v2.csv"
+  "DATA_PATH": "/Users/Elias/brighter.ai",
+  "METADATA_PATH":  "/Users/Elias/brighter.ai",
+  "PREDICTIONS_PATH":  "/Users/Elias/brighter.ai"
 
 }
 

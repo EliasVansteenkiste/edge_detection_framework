@@ -106,21 +106,21 @@ def generate_all_lossless_plus_translation(x, p_aug, p_transform = None):
 
     return np.stack(augmentations)
 
-def tiling(img, tile_shape):
-    tiles = []
-    for x in range(0,img.shape[0], tile_shape[0]):
-        for y in range(0,img.shape[1], tile_shape[1]):
-            for z in range(0,img.shape[2], tile_shape[2]):
-                print x,y,z
-                tiles.append(img[x:x+tile_shape[0],y:y+tile_shape[1],z:z+tile_shape[2]])
-    return tiles
-
-def _test_tiling():
-    tif = app.read_image('train', 0)
-    print tif.shape
-    tiles = tiling(tif,(4,128,128))
-    for tile in tiles:
-        print tile.shape  
+# def tiling(img, tile_shape):
+#     tiles = []
+#     for x in range(0,img.shape[0], tile_shape[0]):
+#         for y in range(0,img.shape[1], tile_shape[1]):
+#             for z in range(0,img.shape[2], tile_shape[2]):
+#                 print x,y,z
+#                 tiles.append(img[x:x+tile_shape[0],y:y+tile_shape[1],z:z+tile_shape[2]])
+#     return tiles
+#
+# def _test_tiling():
+#     tif = app.read_image('train', 0)
+#     print tif.shape
+#     tiles = tiling(tif,(4,128,128))
+#     for tile in tiles:
+#         print tile.shape
 
 def random_crop(x, w, h, rng):
     o_w = x.shape[1]
@@ -229,20 +229,19 @@ def perturb(img, augmentation_params, target_shape, rng=rng, n_channels=4):
 
 def _print_stats_channels(img, channel_stats, channel_data):
     n_channels = img.shape[-1]
-    print n_channels
     for ch in range(n_channels):
-        print 'ch', ch,
+        print('ch', ch,)
         ch_data = img[:,:,ch]
         channel_data[ch].append(img[:,:,ch])
-        print 'max', np.amax(ch_data),
+        print('max', np.amax(ch_data),)
         channel_stats[str(ch)+'max'].append(np.amax(ch_data))
-        print 'min', np.amin(ch_data),
+        print('min', np.amin(ch_data),)
         channel_stats[str(ch)+'min'].append(np.amin(ch_data))
-        print 'avg', np.average(ch_data), 
+        print('avg', np.average(ch_data),)
         channel_stats[str(ch)+'avg'].append(np.average(ch_data))
-        print 'std', np.std(ch_data),
+        print('std', np.std(ch_data),)
         channel_stats[str(ch)+'std'].append(np.std(ch_data))
-        print 'var', np.var(ch_data)
+        print('var', np.var(ch_data))
         channel_stats[str(ch)+'var'].append(np.var(ch_data))
 
 
