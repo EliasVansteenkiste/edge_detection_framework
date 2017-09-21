@@ -44,7 +44,7 @@ class EdgeDataGenerator(object):
                         print('cannot open ', img_id, edges_id)
 
                     x = self.data_prep_fun(x=img)
-                    y = self.edges_prep_fun(edges=edges)
+                    y = self.label_prep_fun(y=edges)
                     x_batch.append(x)
                     if 'all' in self.mode:
                         y_batch.append(y)

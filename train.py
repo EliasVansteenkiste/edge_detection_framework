@@ -1,10 +1,12 @@
+import torch
+from torch.autograd import Variable
 #import cPickle as pickle
 import pickle
 import string
 import sys
 import time
-
 import numpy as np
+
 
 from datetime import datetime, timedelta
 
@@ -15,8 +17,8 @@ import logger
 from configuration import config, set_configuration
 import pathfinder
 import app
-import torch
-from torch.autograd import Variable
+
+print('train.py importing complete')
 
 if len(sys.argv) < 2:
     sys.exit("Usage: CUDA_VISIBLE_DEVICES=<gpu_number> python train.py <configuration_name>")
@@ -105,7 +107,7 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in zip(chunk_idxs, buffe
 
     # make nbatches_chunk iterations
     model.l_out.train()
-    for b in xrange(config().nbatches_chunk):
+    for b in range(config().nbatches_chunk):
 
         losses_time_print.append(time.time())
 
@@ -200,7 +202,7 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in zip(chunk_idxs, buffe
         losses_eval_valid2.append(valid_loss2)
 
         if valid_score > best_threshold and valid_score > best_valid_f2_score:
-            with open(metadata_best_path, 'w') as f:
+            with open(metadata_best_path, 'wb') as f:
                 pickle.dump({
                     'configuration_file': config_name,
                     'git_revision_hash': utils.get_git_revision_hash(),
@@ -230,7 +232,7 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in zip(chunk_idxs, buffe
         print('Chunk %d/%d' % (chunk_idx + 1, config().max_nchunks))
         print('Saving metadata, parameters')
 
-        with open(metadata_path, 'w') as f:
+        with open(metadata_path, 'wb') as f:
             pickle.dump({
                 'configuration_file': config_name,
                 'git_revision_hash': utils.get_git_revision_hash(),
