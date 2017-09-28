@@ -1,15 +1,12 @@
-import numpy as np # linear algebra
-import scipy
-import scipy.io as io
+import numpy as np
 from PIL import Image
 import os
-
+import scipy
 
 from sklearn.metrics import fbeta_score
 
 import pathfinder
-import utils
-# import utils_plots
+
 
 rng = np.random.RandomState(37145)
 
@@ -45,6 +42,16 @@ def read_image_from_id(id):
     im = Image.open(path)
     arr = np.asanyarray(im)
     return arr
+
+
+def save_image(img_arr, filename, mode='L'):
+    scipy.misc.imsave(filename, img_arr)
+
+    # im = Image.fromarray(img_arr, mode=mode)
+    # print(im.mode)
+    # if im.mode != 'RGB':
+    #     im = im.convert('RGB')
+    # im.save(filename)
 
 
 def get_id_pairs(dataset_img, dataset_edges):
@@ -113,20 +120,22 @@ def f2_score_arr( y_pred, y_true, treshold=.5, average='samples'):
     return f2_score(y_true, y_pred_cutoff, average)
 
 def cont_f_score(y_pred, y_true, beta=1.0):
+    f_scores = []
+    for ipred, itrue in zip(y_pred, y_true):
+        ipred = np.array(ipred)
+        itrue = np.array(itrue)
 
-    y_pred = np.array(y_pred)
-    y_true = np.array(y_true)
+        tp = itrue * ipred
+        fp = (1-itrue) * ipred
+        fn = itrue * (1-ipred)
 
-    tp = y_true * y_pred
-    fp = (1-y_true) * y_pred
-    fn = y_true * (1-y_pred)
+        f_score = (1+beta**2) * tp / ((1+beta**2) * tp + beta**2 * fn + fp)
+        f_scores.append(np.mean(f_score))
 
-    f_score = (1+beta**2) * tp / ((1+beta**2) * tp + beta**2 * fn + fp)
+    f_scores = np.array(f_scores)
+    mean_f_score = np.mean(f_scores)
 
-    return f_score
-
-
-
+    return mean_f_score
 
 
 

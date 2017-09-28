@@ -9,7 +9,7 @@ import os
 import pickle
 
 
-maxfloat = np.finfo(np.float32).max
+max_float = np.finfo(np.float32).max
 
 
 def auto_make_dir(path):

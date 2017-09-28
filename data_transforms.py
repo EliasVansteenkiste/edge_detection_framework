@@ -9,7 +9,6 @@ from collections import defaultdict
 import utils_plots
 import app
 
-
 rng = np.random.RandomState(37145)
 
 
@@ -17,35 +16,6 @@ def pixelnorm(x, MIN=0, MAX=61440.0):
     x = (x - MIN) / (MAX - MIN)
     return x
 
-default_channel_zmuv_stats = {
-    'avg': [4970.55, 4245.35, 3064.64, 6360.08],
-    'std': [1785.79, 1576.31, 1661.19, 1841.09]}
-
-def channel_zmuv(x, img_stats = default_channel_zmuv_stats, no_channels=4):
-    for ch in range(no_channels):
-        x[ch] = (x[ch] - img_stats['avg'][ch]) / img_stats['std'][ch]
-    return x
-
-default_channel_norm_stats = {
-    0.1: [2739., 2022., 1284., 1091.],
-    0.5: [3016., 2272., 1433., 1415.],
-    1: [3149., 2441., 1563.,  1733.],
-    5: [3514., 2867., 1792., 3172.],
-    10: [3661., 3016., 1902., 4132.],
-    50: [4503., 3768., 2534., 6399.],
-    90: [6615., 5912., 4694., 8311.],
-    95: [7623., 6822., 5698., 9109.],
-    99: [11065., 10184., 9047., 11561.],
-    99.5: [14686., 13508., 12197., 12820.],
-    99.9: [23722., 16926., 19183., 16523.]
-}
-
-def channel_norm(x, img_stats = default_channel_norm_stats, percentiles=[1,99], no_channels=4):
-    for ch in range(no_channels):
-        minimum = img_stats[percentiles[0]][ch]
-        maximum = img_stats[percentiles[1]][ch]
-        x[ch] = (x[ch] - minimum) / (maximum-minimum)
-    return x
 
 default_augmentation_params = {
     'zoom_range': (1 / 1.1, 1.1),
@@ -65,11 +35,13 @@ no_augmentation_params = {
     'allow_stretch': False,
 }
 
+
 def random_lossless(x, p_aug, rng):
     rot90_value = rng.choice(p_aug['rot90_values'])
     flip = rng.choice(p_aug['flip'])
     x = apply_lossless(x, rot90_value, flip)
     return x
+
 
 def apply_lossless(x, rot90_value, flip):
     if rot90_value:
@@ -78,17 +50,20 @@ def apply_lossless(x, rot90_value, flip):
         x = np.flip(x, 1)
     return x
 
-def rescale(x,factor):
-    return skimage.transform.rescale(x,factor)
+
+def rescale(x, factor):
+    return skimage.transform.rescale(x, factor)
+
 
 def generate_all_lossless(x, p_aug):
     augmentations = []
     for rot90_value in p_aug['rot90_values']:
         for flip in p_aug['flip']:
-            augmentations.append(apply_lossless(x,rot90_value,flip))
+            augmentations.append(apply_lossless(x, rot90_value, flip))
     return np.stack(augmentations)
 
-def generate_all_lossless_plus_translation(x, p_aug, p_transform = None):
+
+def generate_all_lossless_plus_translation(x, p_aug, p_transform=None):
     augmentations = []
     pert_aug = dict((k, p_aug[k]) for k in (
         'zoom_range', 'rotation_range', 'shear_range', 'translation_range', 'do_flip', 'allow_stretch') if
@@ -98,13 +73,13 @@ def generate_all_lossless_plus_translation(x, p_aug, p_transform = None):
         for flip in p_aug['flip']:
             lossless = apply_lossless(x, rot90_value, flip)
 
-            for i in [-1,1,0]:
-
+            for i in [-1, 1, 0]:
                 lost = perturb(lossless, pert_aug, p_transform['patch_size'], rng, n_channels=p_transform["channels"])
 
                 augmentations.append(lost)
 
     return np.stack(augmentations)
+
 
 # def tiling(img, tile_shape):
 #     tiles = []
@@ -122,28 +97,36 @@ def generate_all_lossless_plus_translation(x, p_aug, p_transform = None):
 #     for tile in tiles:
 #         print tile.shape
 
-def random_crop(x, w, h, rng):
+def random_crop_x(x, w, h, rng):
     o_w = x.shape[1]
     o_h = x.shape[2]
     w_range = o_w - w
     h_range = o_h - h
     w_offset = rng.choice(np.arange(w_range))
     h_offset = rng.choice(np.arange(h_range))
-    return x[:,w_offset:w_offset+w,h_offset:h_offset+h]
+    return x[:, w_offset:w_offset + w, h_offset:h_offset + h]
 
 
-
-
+def random_crop_x_y(x, y, w, h, rng):
+    o_w = x.shape[1]
+    o_h = x.shape[2]
+    w_range = o_w - w
+    h_range = o_h - h
+    w_offset = rng.choice(np.arange(w_range))
+    h_offset = rng.choice(np.arange(h_range))
+    return x[:, w_offset:w_offset + w, h_offset:h_offset + h], y[:, w_offset:w_offset + w, h_offset:h_offset + h]
 
 def build_center_uncenter_transforms(image_shape):
     """
     These are used to ensure that zooming and rotation happens around the center of the image.
     Use these transforms to center and uncenter the image around such a transform.
     """
-    center_shift = np.array([image_shape[1], image_shape[0]]) / 2.0 - 0.5 # need to swap rows and cols here apparently! confusing!
+    center_shift = np.array(
+        [image_shape[1], image_shape[0]]) / 2.0 - 0.5  # need to swap rows and cols here apparently! confusing!
     tform_uncenter = skimage.transform.SimilarityTransform(translation=-center_shift)
     tform_center = skimage.transform.SimilarityTransform(translation=center_shift)
     return tform_center, tform_uncenter
+
 
 def build_centering_transform(image_shape, target_shape=(50, 50)):
     rows, cols = image_shape
@@ -152,14 +135,17 @@ def build_centering_transform(image_shape, target_shape=(50, 50)):
     shift_y = (rows - trows) / 2.0
     return skimage.transform.SimilarityTransform(translation=(shift_x, shift_y))
 
+
 def fast_warp(img, tf, output_shape=(50, 50), mode='constant', order=1):
     """
     This wrapper function is faster than skimage.transform.warp
     """
-    m = tf.params # tf._matrix is
+    m = tf.params  # tf._matrix is
     return skimage.transform._warps_cy._warp_fast(img, m, output_shape=output_shape, mode=mode, order=order)
 
-def random_perturbation_transform(zoom_range, rotation_range, shear_range, translation_range, do_flip=True, allow_stretch=False, rng=np.random):
+
+def random_perturbation_transform(zoom_range, rotation_range, shear_range, translation_range, do_flip=True,
+                                  allow_stretch=False, rng=np.random):
     shift_x = rng.uniform(*translation_range)
     shift_y = rng.uniform(*translation_range)
     translation = (shift_x, shift_y)
@@ -168,7 +154,7 @@ def random_perturbation_transform(zoom_range, rotation_range, shear_range, trans
     shear = rng.uniform(*shear_range)
 
     if do_flip:
-        flip = (rng.randint(2) > 0) # flip half of the time
+        flip = (rng.randint(2) > 0)  # flip half of the time
     else:
         flip = False
 
@@ -180,7 +166,7 @@ def random_perturbation_transform(zoom_range, rotation_range, shear_range, trans
         stretch = np.exp(rng.uniform(*log_stretch_range))
         zoom_x = zoom * stretch
         zoom_y = zoom / stretch
-    elif allow_stretch is True: # avoid bugs, f.e. when it is an integer
+    elif allow_stretch is True:  # avoid bugs, f.e. when it is an integer
         zoom_x = np.exp(rng.uniform(*log_zoom_range))
         zoom_y = np.exp(rng.uniform(*log_zoom_range))
     else:
@@ -189,22 +175,26 @@ def random_perturbation_transform(zoom_range, rotation_range, shear_range, trans
 
     return build_augmentation_transform((zoom_x, zoom_y), rotation, shear, translation, flip)
 
-def build_augmentation_transform(zoom=(1.0, 1.0), rotation=0, shear=0, translation=(0, 0), flip=False): 
+
+def build_augmentation_transform(zoom=(1.0, 1.0), rotation=0, shear=0, translation=(0, 0), flip=False):
     if flip:
         shear += 180
         rotation += 180
         # shear by 180 degrees is equivalent to rotation by 180 degrees + flip.
         # So after that we rotate it another 180 degrees to get just the flip.
 
-    tform_augment = skimage.transform.AffineTransform(scale=(1/zoom[0], 1/zoom[1]), rotation=np.deg2rad(rotation), shear=np.deg2rad(shear), translation=translation)
+    tform_augment = skimage.transform.AffineTransform(scale=(1 / zoom[0], 1 / zoom[1]), rotation=np.deg2rad(rotation),
+                                                      shear=np.deg2rad(shear), translation=translation)
     return tform_augment
 
+
 def PCA_augmentation(batch, l, V):
-  for i in xrange(batch.shape[0]):
-       alpha = np.random.randn(3) * 0.1
-       noise = np.dot(V, alpha * l)
-       batch[i, :, :, :] = batch[i, :, :, :] + noise[:, np.newaxis, np.newaxis]
-  return batch
+    for i in xrange(batch.shape[0]):
+        alpha = np.random.randn(3) * 0.1
+        noise = np.dot(V, alpha * l)
+        batch[i, :, :, :] = batch[i, :, :, :] + noise[:, np.newaxis, np.newaxis]
+    return batch
+
 
 def perturb(img, augmentation_params, target_shape, rng=rng, n_channels=4):
     # # DEBUG: draw a border to see where the image ends up
@@ -216,33 +206,33 @@ def perturb(img, augmentation_params, target_shape, rng=rng, n_channels=4):
     tform_centering = build_centering_transform(img_spat_shape, target_shape)
     tform_center, tform_uncenter = build_center_uncenter_transforms(img_spat_shape)
     tform_augment = random_perturbation_transform(rng=rng, **augmentation_params)
-    tform_augment = tform_uncenter + tform_augment + tform_center # shift to center, augment, shift back (for the rotation/shearing)
-    
+    tform_augment = tform_uncenter + tform_augment + tform_center  # shift to center, augment, shift back (for the rotation/shearing)
+
     chs = []
     for ch in range(n_channels):
-        ch_warped = fast_warp(img[ch], tform_centering + tform_augment, output_shape=target_shape, mode='constant').astype('float32')
+        ch_warped = fast_warp(img[ch], tform_centering + tform_augment, output_shape=target_shape,
+                              mode='constant').astype('float32')
         chs.append(ch_warped)
     out_img = np.stack(chs, axis=0)
     return out_img
 
 
-
 def _print_stats_channels(img, channel_stats, channel_data):
     n_channels = img.shape[-1]
     for ch in range(n_channels):
-        print('ch', ch,)
-        ch_data = img[:,:,ch]
-        channel_data[ch].append(img[:,:,ch])
-        print('max', np.amax(ch_data),)
-        channel_stats[str(ch)+'max'].append(np.amax(ch_data))
-        print('min', np.amin(ch_data),)
-        channel_stats[str(ch)+'min'].append(np.amin(ch_data))
-        print('avg', np.average(ch_data),)
-        channel_stats[str(ch)+'avg'].append(np.average(ch_data))
-        print('std', np.std(ch_data),)
-        channel_stats[str(ch)+'std'].append(np.std(ch_data))
+        print('ch', ch, )
+        ch_data = img[:, :, ch]
+        channel_data[ch].append(img[:, :, ch])
+        print('max', np.amax(ch_data), )
+        channel_stats[str(ch) + 'max'].append(np.amax(ch_data))
+        print('min', np.amin(ch_data), )
+        channel_stats[str(ch) + 'min'].append(np.amin(ch_data))
+        print('avg', np.average(ch_data), )
+        channel_stats[str(ch) + 'avg'].append(np.average(ch_data))
+        print('std', np.std(ch_data), )
+        channel_stats[str(ch) + 'std'].append(np.std(ch_data))
         print('var', np.var(ch_data))
-        channel_stats[str(ch)+'var'].append(np.var(ch_data))
+        channel_stats[str(ch) + 'var'].append(np.var(ch_data))
 
 
 if __name__ == "__main__":
@@ -263,7 +253,7 @@ if __name__ == "__main__":
     #     tif = tif.astype('float32')
     #     print tif.shape
     #     print tif.dtype
-        #_print_stats_channels(tif,channel_stats,channel_data)
+    # _print_stats_channels(tif,channel_stats,channel_data)
 
     # print 'overall stats'
 
@@ -279,7 +269,4 @@ if __name__ == "__main__":
 
 
 
-        #utils_plots.show_img(calibrate_image(tif[:,:,:3]))
-
-
-    
+    # utils_plots.show_img(calibrate_image(tif[:,:,:3]))

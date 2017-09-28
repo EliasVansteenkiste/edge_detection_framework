@@ -6,18 +6,19 @@ import buffering
 
 class EdgeDataGenerator(object):
     def __init__(self, mode, batch_size, img_id_pairs, data_prep_fun, label_prep_fun, rng,
-                 random, infinite, full_batch, **kwargs):
+                 random, infinite, full_batch, print_dbg=False, **kwargs):
 
         self.mode = mode
         self.img_id_pairs = img_id_pairs
         self.nsamples = len(img_id_pairs)
         self.batch_size = batch_size
         self.data_prep_fun = data_prep_fun
-        self.label_prep_fun = label_prep_fun
+        # self.label_prep_fun = label_prep_fun
         self.rng = rng
         self.random = random
         self.infinite = infinite
         self.full_batch = full_batch
+        self.print_dbg = print_dbg
 
     def generate(self):
         while True:
@@ -43,13 +44,12 @@ class EdgeDataGenerator(object):
                     except Exception:
                         print('cannot open ', img_id, edges_id)
 
-                    x = self.data_prep_fun(x=img)
-                    y = self.label_prep_fun(y=edges)
+                    x, y = self.data_prep_fun(x=img, y=edges)
                     x_batch.append(x)
                     if 'all' in self.mode:
                         y_batch.append(y)
-
-                    print('i', i, 'img_id', img_id_pair)
+                    if self.print_dbg:
+                        print('i', i, 'img_id', img_id_pair)
 
                 x_batch = np.stack(x_batch)
                 y_batch = np.stack(y_batch)
@@ -67,10 +67,12 @@ def _test_data_generator():
     # testing data iterator
     rng = np.random.RandomState(42)
 
-    def data_prep_fun(x):
+    def data_prep_fun(x, y):
         x = np.swapaxes(x, 0, 2)
         x = np.swapaxes(x, 1, 2)
-        return x
+
+        y = y[None, :, :]
+        return x, y
 
     def label_prep_fun(edges):
         edges = edges[None, :, :]
