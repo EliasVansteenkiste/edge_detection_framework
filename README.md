@@ -1,7 +1,7 @@
 # Edge detection framework
 Pytorch implementation of different edge detection networks, such as
-* Holistically-Nested Edge Detection [link to caffe implementation](https://github.com/s9xie/hed)
-* PixelNet [link to caffe implementation](https://github.com/aayushbansal/PixelNet)
+* Holistically-Nested Edge Detection ([link to caffe implementation](https://github.com/s9xie/hed))
+* PixelNet ([link to caffe implementation](https://github.com/aayushbansal/PixelNet))
 
 ## Training models
 python train.py \<config name\>
