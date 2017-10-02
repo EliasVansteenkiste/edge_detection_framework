@@ -1,4 +1,7 @@
-# Bare bones project template for pytorch with support for different configurations
+# Edge detection framework
+Pytorch implementation of different edge detection networks, such as
+* Holistically-Nested Edge Detection [link to caffe implementation] (https://github.com/s9xie/hed)
+* PixelNet [link to caffe implementation] (https://github.com/aayushbansal/PixelNet)
 
 ## Training models
 python train.py \<config name\>
@@ -7,5 +10,5 @@ python train.py \<config name\>
 python test.py \<valid/test\> \<config name\> 
 
 ## Warning
-As this is a template project, it is not debugged and not able to run config files yet, because app specific config files/data iterators should be written before training/testing models.
+This is a work in progress, so not every feature is working completely
 
