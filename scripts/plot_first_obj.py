@@ -52,7 +52,7 @@ ax = fig.add_subplot(111)
 # ax2 = ax.twinx()
 ax.plot(training_errors, label='training errors')
 ax.plot(validation_errors, label='validation errors')
-ax.set_ylim(0.0, 2.0)
+ax.set_ylim(0.0, 0.01)
 
 ax.legend(loc="upper right")
 # ax2.legend(loc="center left")

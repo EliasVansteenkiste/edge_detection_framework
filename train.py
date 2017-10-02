@@ -156,8 +156,7 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in zip(chunk_idxs, buffe
         # calculate mean train loss since the last validation phase
         mean_train_loss = np.mean(tmp_losses_train)
         mean_train_loss2 = np.mean(tmp_losses_train2)
-        #mean_train_score = np.mean(config().score(np.vstack(tmp_preds_train), tmp_gts_train))
-        mean_train_score = -1
+        mean_train_score = np.mean(config().score(np.vstack(tmp_preds_train), tmp_gts_train))
         print('\nMean train loss: %7f' % mean_train_loss, mean_train_loss2, mean_train_score)
         losses_eval_train.append(mean_train_loss)
 
@@ -170,8 +169,10 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in zip(chunk_idxs, buffe
 
         tmp_losses_valid = []
         tmp_losses_valid2 = []
+
         tmp_preds_valid = []
         tmp_gts_valid = []
+        tmp_xs_valid = []
 
         model.l_out.eval()
         for i, (x_chunk_valid, y_chunk_valid, ids_batch) in enumerate(
@@ -192,6 +193,8 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in zip(chunk_idxs, buffe
 
             for gt in y_chunk_valid:
                 tmp_gts_valid.append(gt)
+            for xx in x_chunk_valid:
+                tmp_xs_valid.append(xx)
 
 
         # calculate validation loss across validation set
@@ -205,7 +208,7 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in zip(chunk_idxs, buffe
 
 
         # do something with the intermediate valid predictions, like saving to image
-        config().intermediate_valid_predictions(tmp_preds_valid, expid, chunk_idx)
+        config().intermediate_valid_predictions(tmp_xs_valid, tmp_gts_valid, tmp_preds_valid, expid, chunk_idx)
 
 
         if valid_score > best_threshold and valid_score > best_valid_f2_score:

@@ -32,9 +32,7 @@ def read_image(dataset, filename):
 
 
 def read_image_from_path(path):
-    im = Image.open(path)
-    arr = np.asanyarray(im)
-    return arr
+    return Image.open(path)
 
 
 def read_image_from_id(id):
@@ -74,14 +72,12 @@ def make_splits(lids, fractions):
     assert abs(1.-sum(fractions)) < 1e-6
     n = len(lids)
     ns_per_part = np.floor(n * fractions).astype(int)
-    print(ns_per_part)
     idxs = np.arange(n)
     rng.shuffle(idxs)
     splits = []
     ptr = 0
     for nel_idx, nel in enumerate(ns_per_part):
         split = []
-        print(ptr, ptr+nel)
         split = [lids[i] for i in idxs[ptr:ptr+nel]]
         splits.append(split)
         ptr += nel
@@ -93,11 +89,13 @@ def train_val_test_split(id_lists, train_fraction, val_fraction, test_fraction):
     val_ids = []
     test_ids = []
 
-    for id_list in id_lists:
+    for dataset_idx, id_list in enumerate(id_lists):
+        print('dataset', dataset_idx, 'contains', len(id_lists), 'items.')
         train, val, test = make_splits(id_list, [train_fraction, val_fraction, test_fraction])
         train_ids += train
         val_ids += val
         test_ids += test
+        print('train_ids', len(train_ids), 'val_ids', len(val_ids), 'test_ids', len(test_ids))
 
     return {'train': train_ids, 'valid': val_ids, 'test': test_ids}
 
@@ -121,16 +119,21 @@ def f2_score_arr( y_pred, y_true, treshold=.5, average='samples'):
 
 def cont_f_score(y_pred, y_true, beta=1.0):
     f_scores = []
+    tps = []
     for ipred, itrue in zip(y_pred, y_true):
         ipred = np.array(ipred)
         itrue = np.array(itrue)
 
-        tp = itrue * ipred
-        fp = (1-itrue) * ipred
-        fn = itrue * (1-ipred)
+        tp = np.sum(itrue * ipred)
+        fp = np.sum((1-itrue) * ipred)
+        fn = np.sum(itrue * (1-ipred))
 
-        f_score = (1+beta**2) * tp / ((1+beta**2) * tp + beta**2 * fn + fp)
-        f_scores.append(np.mean(f_score))
+        tps.append(tp)
+
+        # print('tp', np.sum(tp), 'fp', np.sum(fp), 'fn', np.sum(fn), 'itrue', np.sum(itrue), 'ipred', np.sum(ipred))
+
+        f_score = (1+beta**2) * tp / ((1+beta**2) * tp + beta**2 * fn + fp + 1.)
+        f_scores.append(f_score)
 
     f_scores = np.array(f_scores)
     mean_f_score = np.mean(f_scores)

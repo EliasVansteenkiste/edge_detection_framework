@@ -332,10 +332,16 @@ def vgg16(pretrained=False, **kwargs):
 
 
 
-class PxlNet(nn.Module):
+class HEDNet(nn.Module):
     def __init__(self, activation=F.relu):
         self.inplanes = 64
-        super(PxlNet, self).__init__()
+        super(HEDNet, self).__init__()
+
+        self.score_dsn1 = nn.Conv2d(64, 1, kernel_size=1, stride=1, padding=0)
+        self.score_dsn2 = nn.Conv2d(128, 1, kernel_size=1, stride=1, padding=0)
+        self.score_dsn3 = nn.Conv2d(256, 1, kernel_size=1, stride=1, padding=0)
+        self.score_dsn4 = nn.Conv2d(512, 1, kernel_size=1, stride=1, padding=0)
+        self.score_dsn5 = nn.Conv2d(512, 1, kernel_size=1, stride=1, padding=0)
 
         self.upsample2 = nn.Upsample(scale_factor=2, mode='bilinear')
         self.upsample3 = nn.Upsample(scale_factor=4, mode='bilinear')
@@ -365,29 +371,30 @@ class PxlNet(nn.Module):
 
         c1, c2, c3, c4, c5 = self.VGG16fs.forward_hypercol(x)
 
-        s1 = c1
-        s2 = self.upsample2(c2)
-        s3 = self.upsample3(c3)
-        s4 = self.upsample4(c4)
-        s5 = self.upsample5(c5)
+        s1 = self.score_dsn1(c1)
+        s2 = self.score_dsn2(c2)
+        s3 = self.score_dsn3(c3)
+        s4 = self.score_dsn4(c4)
+        s5 = self.score_dsn5(c5)
 
-        hypercols = torch.cat([s1, s2, s3, s4, s5], dim=1)
+        s2 = self.upsample2(s2)
+        s3 = self.upsample3(s3)
+        s4 = self.upsample4(s4)
+        s5 = self.upsample5(s5)
 
-        x = self.crop(hypercols)
+        s1 = F.sigmoid(s1)
+        s2 = F.sigmoid(s2)
+        s3 = F.sigmoid(s3)
+        s4 = F.sigmoid(s4)
+        s5 = F.sigmoid(s5)
 
-        x = self.drop(x)
+        out = 0.2 * s1 + 0.2 * s2 + 0.2 * s3 + 0.2 * s4 + 0.2 * s5
 
-        x = self.cd1(x)
-        x = self.cd2(x)
-        x = self.cd3(x)
-
-        x = F.sigmoid(x)
-
-        return x
+        return self.crop(out)
 
 
 def build_model():
-    net = PxlNet()
+    net = HEDNet()
     return namedtuple('Model', ['l_out'])(net)
 
 
