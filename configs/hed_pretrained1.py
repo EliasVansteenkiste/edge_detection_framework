@@ -20,7 +20,7 @@ restart_from_save = None
 rng = np.random.RandomState(37148)
 
 # transformations
-p_transform = {'patch_size': (320, 320),
+p_transform = {'patch_size': (512, 512),
                'channels': 3}
 
 # only lossless augmentations

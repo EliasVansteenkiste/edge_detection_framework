@@ -20,7 +20,7 @@ restart_from_save = None
 rng = np.random.RandomState(37148)
 
 # transformations
-p_transform = {'patch_size': (320, 320),
+p_transform = {'patch_size': (512, 512),
                'channels': 3}
 
 # only lossless augmentations
@@ -72,7 +72,7 @@ train_data_prep_fun = partial(data_prep_fun, random_gen=rng)
 valid_data_prep_fun = partial(data_prep_fun, random_gen=np.random.RandomState(0))
 
 # data iterators
-batch_size = 1
+batch_size = 6
 nbatches_chunk = 1
 chunk_size = batch_size * nbatches_chunk
 
@@ -116,8 +116,8 @@ nchunks_per_epoch = train_data_iterator.nsamples // chunk_size
 max_nchunks = nchunks_per_epoch * 40
 print('max_nchunks', max_nchunks)
 
-validate_every = int(0.1 * nchunks_per_epoch)
-save_every = int(10 * nchunks_per_epoch)
+validate_every = int(0.5 * nchunks_per_epoch)
+save_every = int(4 * nchunks_per_epoch)
 
 learning_rate_schedule = {
     0: 5e-4,

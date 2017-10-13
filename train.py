@@ -100,10 +100,10 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in zip(chunk_idxs, buffe
             param_group['lr'] = lr
 
 
-    for gt in y_chunk_train:
-        tmp_gts.append(gt)
-        tmp_gts_train.append(gt)
-        gts_train_print.append(gt)
+    # for gt in y_chunk_train:
+    #     tmp_gts.append(gt)
+    #     tmp_gts_train.append(gt)
+    #     gts_train_print.append(gt)
 
     # make nbatches_chunk iterations
     model.l_out.train()
@@ -125,10 +125,10 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in zip(chunk_idxs, buffe
         loss.backward()
         optimizer.step()
 
-        pr=outputs.cpu().data.numpy()
-        tmp_preds.append(pr)
-        tmp_preds_train.append(pr)
-        preds_train_print.append(pr)
+        # pr=outputs.cpu().data.numpy()
+        # tmp_preds.append(pr)
+        # tmp_preds_train.append(pr)
+        # preds_train_print.append(pr)
 
         loss_out = loss.cpu().data.numpy()[0]
         loss2_out = loss2.cpu().data.numpy()[0]
@@ -143,7 +143,7 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in zip(chunk_idxs, buffe
                                       10. * config().nbatches_chunk * config().batch_size / (
                                       time.time() - losses_time_print[0])),)
         print(np.mean(losses_train_print), np.mean(losses_train_print2))
-        print('score', config().score(np.vstack(preds_train_print), gts_train_print))
+        # print('score', config().score(np.vstack(preds_train_print), gts_train_print))
         preds_train_print = []
         gts_train_print = []
         losses_train_print = []
@@ -156,7 +156,8 @@ for chunk_idx, (x_chunk_train, y_chunk_train, id_train) in zip(chunk_idxs, buffe
         # calculate mean train loss since the last validation phase
         mean_train_loss = np.mean(tmp_losses_train)
         mean_train_loss2 = np.mean(tmp_losses_train2)
-        mean_train_score = np.mean(config().score(np.vstack(tmp_preds_train), tmp_gts_train))
+        # mean_train_score = np.mean(config().score(np.vstack(tmp_preds_train), tmp_gts_train))
+        mean_train_score = -1
         print('\nMean train loss: %7f' % mean_train_loss, mean_train_loss2, mean_train_score)
         losses_eval_train.append(mean_train_loss)
 
